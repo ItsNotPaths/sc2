@@ -33,6 +33,10 @@ echo "==> wayland-protocols 1.50 (xdg-shell, text-input, cursor-shape, fractiona
 fetch wayland-protocols "https://gitlab.freedesktop.org/wayland/wayland-protocols.git" \
     "3eab2dccf4bfdd85c16d312a6c8c8fbc2a6e73a8"
 
+echo "==> freetype 2.15.0"
+fetch freetype "https://gitlab.freedesktop.org/freetype/freetype.git" \
+    "37515cf56ba3349656049edbed89ffc6f6466f2d"
+
 echo "==> wlr-protocols (layer-shell, pinned 2026-11-13)"
 fetch wlr-protocols "https://gitlab.freedesktop.org/wlroots/wlr-protocols.git" \
     "1106a4a1c57562ddd438c547da4c0d6dc150d624"
