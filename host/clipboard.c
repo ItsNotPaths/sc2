@@ -8,26 +8,26 @@
 
 typedef struct {
     const char *mime_type;
-    uint8_t     data;  // OTK_DATA_ bit
+    uint8_t     data;  // SC2_DATA_ bit
 } DataType;
 
 // A drop takes the first row its offer has. A paste takes the first row with the requested bit.
 static const DataType data_types[] = {
-    {"text/uri-list",            OTK_DATA_URI_LIST},
-    {"image/png",                OTK_DATA_PNG},
-    {"image/jpeg",               OTK_DATA_JPEG},
-    {"image/webp",               OTK_DATA_WEBP},
-    {"image/avif",               OTK_DATA_AVIF},
-    {"text/plain;charset=utf-8", OTK_DATA_TEXT},
-    {"text/plain",               OTK_DATA_TEXT},
-    {"UTF8_STRING",              OTK_DATA_TEXT},
-    {"text/html",                OTK_DATA_HTML},
+    {"text/uri-list",            SC2_DATA_URI_LIST},
+    {"image/png",                SC2_DATA_PNG},
+    {"image/jpeg",               SC2_DATA_JPEG},
+    {"image/webp",               SC2_DATA_WEBP},
+    {"image/avif",               SC2_DATA_AVIF},
+    {"text/plain;charset=utf-8", SC2_DATA_TEXT},
+    {"text/plain",               SC2_DATA_TEXT},
+    {"UTF8_STRING",              SC2_DATA_TEXT},
+    {"text/html",                SC2_DATA_HTML},
 };
 
 enum { DATA_TYPE_COUNT = sizeof data_types / sizeof *data_types, DATA_ANY = UINT8_MAX };
 static_assert(DATA_TYPE_COUNT <= 16, "an offer's types are one uint16_t, a bit per row");
 
-// Folds an offer's rows into OTK_DATA_ bits.
+// Folds an offer's rows into SC2_DATA_ bits.
 static uint8_t data_bits(uint16_t types) {
     uint8_t bits = 0;
     for (int row = 0; row < DATA_TYPE_COUNT; row++)
@@ -36,7 +36,7 @@ static uint8_t data_bits(uint16_t types) {
     return bits;
 }
 
-// The first row the offer has with one of the wanted OTK_DATA_ bits, or -1.
+// The first row the offer has with one of the wanted SC2_DATA_ bits, or -1.
 static int data_type_find(uint16_t types, uint8_t wanted) {
     for (int row = 0; row < DATA_TYPE_COUNT; row++)
         if (types & 1u << row && data_types[row].data & wanted)
@@ -48,14 +48,14 @@ static int data_type_find(uint16_t types, uint8_t wanted) {
 static void receive_end(Host *host, bool arrived) {
     Clipboard *clipboard = &host->clipboard;
     Receive *receive = &clipboard->receive;
-    otk_screen *incoming = host->incoming;
+    sc2_screen *incoming = host->incoming;
     uint32_t length = arrived ? receive->length : 0;
     if (length)
         memcpy(incoming->paste, clipboard->received, length);
     incoming->paste_length = length;
     incoming->paste_data = receive->data;
     incoming->paste_source = receive->source;
-    if (receive->source == OTK_PASTE_DROP) {
+    if (receive->source == SC2_PASTE_DROP) {
         incoming->drop_column = receive->drop_column;
         incoming->drop_row = receive->drop_row;
         incoming->drop_node = receive->drop_node;
@@ -90,16 +90,16 @@ static void receive_start(Host *host, Receive request, struct wl_data_offer *off
     receive->pipe = pipe_ends[0];
 }
 
-// received holds one byte past OTK_PASTE_CAPACITY, so a paste too large to keep shows up.
+// received holds one byte past SC2_PASTE_CAPACITY, so a paste too large to keep shows up.
 static void receive_read(Host *host) {
     Clipboard *clipboard = &host->clipboard;
     Receive *receive = &clipboard->receive;
     ssize_t count = -1;
-    while (receive->length <= OTK_PASTE_CAPACITY
+    while (receive->length <= SC2_PASTE_CAPACITY
            && (count = read(receive->pipe, clipboard->received + receive->length,
-                            OTK_PASTE_CAPACITY + 1 - receive->length)) > 0)
+                            SC2_PASTE_CAPACITY + 1 - receive->length)) > 0)
         receive->length += count;
-    if (receive->length > OTK_PASTE_CAPACITY)
+    if (receive->length > SC2_PASTE_CAPACITY)
         receive_end(host, false);
     else if (count == 0)
         receive_end(host, true);
@@ -109,7 +109,7 @@ static void receive_read(Host *host) {
 
 static void paste_start(Host *host, uint8_t wanted) {
     Clipboard *clipboard = &host->clipboard;
-    Receive request = {.data = wanted, .source = OTK_PASTE_CLIPBOARD};
+    Receive request = {.data = wanted, .source = SC2_PASTE_CLIPBOARD};
     receive_start(host, request, clipboard->selection, data_type_find(clipboard->selection_types, wanted));
 }
 
@@ -168,13 +168,13 @@ static const struct wl_data_source_listener source_listener = {
 // first, since their bytes are about to be gone. False when no whole commit could be read.
 static bool copy_take(Host *host, uint8_t *copy_data) {
     Clipboard *clipboard = &host->clipboard;
-    const otk_screen *committed = host->committed;
+    const sc2_screen *committed = host->committed;
     while (clipboard->send_count)
         send_close(clipboard, 0);
     CommitRead read = commit_read_begin(host);
     do {
         *copy_data = committed->copy_data;
-        clipboard->copy_length = committed->copy_length < OTK_COPY_CAPACITY ? committed->copy_length : OTK_COPY_CAPACITY;
+        clipboard->copy_length = committed->copy_length < SC2_COPY_CAPACITY ? committed->copy_length : SC2_COPY_CAPACITY;
         memcpy(clipboard->offered, committed->copy, clipboard->copy_length);
     } while (commit_read_retry(host, &read));
     return read.whole;
@@ -276,7 +276,7 @@ static void device_drop(void *data, struct wl_data_device *) {
         return;
     int row = data_type_find(clipboard->drag_types, DATA_ANY);
     Receive request = {
-        .source = OTK_PASTE_DROP,
+        .source = SC2_PASTE_DROP,
         .data = row < 0 ? 0 : data_types[row].data,
         .dropped = clipboard->drag,
         .drop_column = clipboard->drag_column,
@@ -300,9 +300,9 @@ void clipboard_attach(Host *host) {
     Clipboard *clipboard = &host->clipboard;
     if (!host->globals.data_device_manager)
         return;
-    void *received = mmap(nullptr, OTK_PASTE_CAPACITY + 1, PROT_READ | PROT_WRITE,
+    void *received = mmap(nullptr, SC2_PASTE_CAPACITY + 1, PROT_READ | PROT_WRITE,
                           MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
-    void *offered = mmap(nullptr, OTK_COPY_CAPACITY, PROT_READ | PROT_WRITE,
+    void *offered = mmap(nullptr, SC2_COPY_CAPACITY, PROT_READ | PROT_WRITE,
                          MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
     if (received == MAP_FAILED || offered == MAP_FAILED)
         return;
@@ -327,8 +327,8 @@ void clipboard_detach(Host *host) {
     if (clipboard->source)
         wl_data_source_destroy(clipboard->source);
     wl_data_device_release(clipboard->data_device);
-    munmap(clipboard->received, OTK_PASTE_CAPACITY + 1);
-    munmap(clipboard->offered, OTK_COPY_CAPACITY);
+    munmap(clipboard->received, SC2_PASTE_CAPACITY + 1);
+    munmap(clipboard->offered, SC2_COPY_CAPACITY);
     *clipboard = (Clipboard){};
 }
 

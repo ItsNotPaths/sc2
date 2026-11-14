@@ -10,16 +10,16 @@
 
 #include "contract.h"
 
-static_assert(offsetof(otk_screen, pixels) == 0, "the host imports pixels in place, from a page");
-static_assert(offsetof(otk_shared, screen) % 4096 == 0, "the host imports pixels in place, from a page");
-static_assert(sizeof(otk_node) == 24, "bindings read the otk_node layout from otk.h");
-static_assert(offsetof(otk_screen, text) + sizeof(uint32_t[OTK_TEXT_CAPACITY]) == offsetof(otk_screen, key_transitions),
+static_assert(offsetof(sc2_screen, pixels) == 0, "the host imports pixels in place, from a page");
+static_assert(offsetof(sc2_shared, screen) % 4096 == 0, "the host imports pixels in place, from a page");
+static_assert(sizeof(sc2_node) == 24, "bindings read the sc2_node layout from sc2.h");
+static_assert(offsetof(sc2_screen, text) + sizeof(uint32_t[SC2_TEXT_CAPACITY]) == offsetof(sc2_screen, key_transitions),
               "receive copies the ring, then every field from key_transitions to nodes");
 
 enum { DEFAULT_TICK_RATE = 240 };
 
 typedef struct {
-    otk_shared *shared;
+    sc2_shared *shared;
     int         commit_event, input_event;
     uint64_t    next_tick;                     // CLOCK_MONOTONIC nanoseconds
     bool        input_changed;                 // the last tick brought input
@@ -29,7 +29,7 @@ typedef struct {
 static Program program;  // one host connection per process
 
 static bool failed(const char *reason) {
-    fprintf(stderr, "otk: %s\n", reason);
+    fprintf(stderr, "sc2: %s\n", reason);
     return false;
 }
 
@@ -44,17 +44,17 @@ static int environment_fd(const char *name) {
     return text ? atoi(text) : -1;
 }
 
-static bool region_differs(const otk_screen *first, const otk_screen *second, size_t start, size_t size) {
+static bool region_differs(const sc2_screen *first, const sc2_screen *second, size_t start, size_t size) {
     return memcmp((const char *)first + start, (const char *)second + start, size) != 0;
 }
 
-static bool output_differs(const otk_screen *screen, const otk_screen *committed) {
+static bool output_differs(const sc2_screen *screen, const sc2_screen *committed) {
     if (region_differs(screen, committed, OUTPUT_START, OUTPUT_SIZE))
         return true;
     for (int index = 0; index < NODE_COUNT; index++) {
-        const otk_node *node = &screen->nodes[index];
+        const sc2_node *node = &screen->nodes[index];
         if (memcmp(&committed->cells[node->storage_offset], &screen->cells[node->storage_offset],
-                   node_cell_count(node) * sizeof(otk_cell)) != 0)
+                   node_cell_count(node) * sizeof(sc2_cell)) != 0)
             return true;
     }
     return false;
@@ -63,20 +63,20 @@ static bool output_differs(const otk_screen *screen, const otk_screen *committed
 // Copies what the program wrote into committed as one whole commit, and tells the host.
 // A tick that changed nothing is no commit.
 static void tick_publish(void) {
-    otk_shared *shared = program.shared;
-    const otk_screen *screen = &shared->screen;
-    otk_screen *committed = &shared->committed;
+    sc2_shared *shared = program.shared;
+    const sc2_screen *screen = &shared->screen;
+    sc2_screen *committed = &shared->committed;
     program.output_changed = output_differs(screen, committed);
     if (!program.output_changed)
         return;
     sequence_write_begin(&shared->header.commit_sequence);
     if (screen->copy_sequence != committed->copy_sequence)
         memcpy(committed->copy, screen->copy,
-               screen->copy_length < OTK_COPY_CAPACITY ? screen->copy_length : OTK_COPY_CAPACITY);
+               screen->copy_length < SC2_COPY_CAPACITY ? screen->copy_length : SC2_COPY_CAPACITY);
     for (int index = 0; index < NODE_COUNT; index++) {
-        const otk_node *node = &screen->nodes[index];
+        const sc2_node *node = &screen->nodes[index];
         memcpy(&committed->cells[node->storage_offset], &screen->cells[node->storage_offset],
-               node_cell_count(node) * sizeof(otk_cell));
+               node_cell_count(node) * sizeof(sc2_cell));
     }
     memcpy((char *)committed + OUTPUT_START, (const char *)screen + OUTPUT_START, OUTPUT_SIZE);
     sequence_write_end(&shared->header.commit_sequence);
@@ -128,21 +128,21 @@ static void tick_wait(void) {
 // Copies the newest whole input into screen, so input holds still for the whole tick. A torn
 // copy is read again; the program's own read positions are kept from before the first try.
 static void tick_receive(void) {
-    otk_shared *shared = program.shared;
-    otk_screen *screen = &shared->screen;
-    const otk_screen *incoming = &shared->incoming;
+    sc2_shared *shared = program.shared;
+    sc2_screen *screen = &shared->screen;
+    const sc2_screen *incoming = &shared->incoming;
     uint32_t seen_text = screen->text_write_index, seen_paste = screen->paste_sequence;
     program.input_changed = input_waiting();
     for (;;) {
         uint32_t begun = sequence_read_begin(&shared->header.input_sequence);
         uint32_t written = incoming->text_write_index, read = seen_text;
-        if (written - read > OTK_TEXT_CAPACITY)
-            read = written - OTK_TEXT_CAPACITY;
+        if (written - read > SC2_TEXT_CAPACITY)
+            read = written - SC2_TEXT_CAPACITY;
         for (; read != written; read++)
-            screen->text[read % OTK_TEXT_CAPACITY] = incoming->text[read % OTK_TEXT_CAPACITY];
+            screen->text[read % SC2_TEXT_CAPACITY] = incoming->text[read % SC2_TEXT_CAPACITY];
         if (incoming->paste_sequence != seen_paste)
             memcpy(screen->paste, incoming->paste,
-                   incoming->paste_length < OTK_PASTE_CAPACITY ? incoming->paste_length : OTK_PASTE_CAPACITY);
+                   incoming->paste_length < SC2_PASTE_CAPACITY ? incoming->paste_length : SC2_PASTE_CAPACITY);
         memcpy((char *)screen + INPUT_START, (const char *)incoming + INPUT_START, INPUT_SIZE);
         if (sequence_read_valid(&shared->header.input_sequence, begun))
             return;
@@ -151,29 +151,29 @@ static void tick_receive(void) {
 }
 
 [[gnu::visibility("default")]]
-otk_screen *otk_open(void) {
+sc2_screen *sc2_open(void) {
     if (program.shared)
         return nullptr;
-    int shared_fd = environment_fd("OTK_SHARED_FD");
-    program.commit_event = environment_fd("OTK_COMMIT_FD");
-    program.input_event = environment_fd("OTK_INPUT_FD");
+    int shared_fd = environment_fd("SC2_SHARED_FD");
+    program.commit_event = environment_fd("SC2_COMMIT_FD");
+    program.input_event = environment_fd("SC2_INPUT_FD");
     if (shared_fd < 0 || program.commit_event < 0 || program.input_event < 0) {
-        failed("no host; run under one, such as otkhost");
+        failed("no host; run under one, such as sc2host");
         return nullptr;
     }
-    void *address = mmap(nullptr, sizeof(otk_shared), PROT_READ | PROT_WRITE, MAP_SHARED, shared_fd, 0);
+    void *address = mmap(nullptr, sizeof(sc2_shared), PROT_READ | PROT_WRITE, MAP_SHARED, shared_fd, 0);
     close(shared_fd);
     if (address == MAP_FAILED) {
         failed("cannot map the host's shared memory");
         return nullptr;
     }
     program.shared = address;
-    if (program.shared->header.magic != OTK_MAGIC || program.shared->header.version != OTK_VERSION) {
+    if (program.shared->header.magic != SC2_MAGIC || program.shared->header.version != SC2_VERSION) {
         failed("the host speaks another version of the contract");
-        otk_close(&program.shared->screen);
+        sc2_close(&program.shared->screen);
         return nullptr;
     }
-    otk_screen *screen = &program.shared->screen;
+    sc2_screen *screen = &program.shared->screen;
     screen->tick_rate = DEFAULT_TICK_RATE;
     program.next_tick = now();
     tick_receive();
@@ -181,7 +181,7 @@ otk_screen *otk_open(void) {
 }
 
 [[gnu::visibility("default")]]
-int otk_tick(otk_screen *screen) {
+int sc2_tick(sc2_screen *screen) {
     tick_publish();
     tick_wait();
     tick_receive();
@@ -189,10 +189,10 @@ int otk_tick(otk_screen *screen) {
 }
 
 [[gnu::visibility("default")]]
-void otk_close(otk_screen *screen) {
+void sc2_close(sc2_screen *screen) {
     if (!program.shared || screen != &program.shared->screen)
         return;
-    munmap(program.shared, sizeof(otk_shared));
+    munmap(program.shared, sizeof(sc2_shared));
     close(program.commit_event);
     close(program.input_event);
     program = (Program){};

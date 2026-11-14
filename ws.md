@@ -1,6 +1,6 @@
 <!-- (swiss :tags (core window input clipboard draw text) :sev (blocker gap polish)) -->
 
-# OTK
+# sc\*2
 
 The design is `docs/design.md`. This plan is the route through it.
 
@@ -9,32 +9,32 @@ text on screen, keys and mouse. `gap` = the rest of the design. `polish` = a sma
 
 ## Structure
 
-OTK is a contract, a tiny library for programs, and a reference host (2026-11-14). A program
-describes its screen in shared memory; a host draws it. Hosts are the product: otkhost is the
+sc\*2 is a contract, a tiny library for programs, and a reference host (2026-11-14). A program
+describes its screen in shared memory; a host draws it. Hosts are the product: sc2host is the
 suckless-style one, and anyone can write another from the contract alone.
 
-- **Contract** (`include/`): `otk.h` and `contract.md`. Bindings and hosts read only these.
-  `otk.h` is strict C99, also parses as C++, and every constant is an enum. Every public name
-  has the `otk` prefix, so none can clash in a program the way `Screen` did with Xlib.
-- **libotk** (`libotk/`): what a program links. `otk_open` maps the memory its host named in
-  the environment, `otk_tick` commits, sleeps and receives. No Wayland, no GPU; about 20 KB.
-  `contract.h` holds the contract's rules once, for libotk and otkhost: the sequence counters,
+- **Contract** (`include/`): `sc2.h` and `contract.md`. Bindings and hosts read only these.
+  `sc2.h` is strict C99, also parses as C++, and every constant is an enum. Every public name
+  has the `sc2` prefix, so none can clash in a program the way `Screen` did with Xlib.
+- **libsc2** (`libsc2/`): what a program links. `sc2_open` maps the memory its host named in
+  the environment, `sc2_tick` commits, sleeps and receives. No Wayland, no GPU; about 20 KB.
+  `contract.h` holds the contract's rules once, for libsc2 and sc2host: the sequence counters,
   and the cells and bytes a node uses.
-- **otkhost** (`host/`): `otkhost PROGRAM [ARGUMENT...]` runs one program and draws it in a
+- **sc2host** (`host/`): `sc2host PROGRAM [ARGUMENT...]` runs one program and draws it in a
   Wayland window. `host.h` holds `Host`: one sub-struct per system and every function the files
   share. One `.c` file per system: `wayland`, `window`, `scale`, `keyboard`, `pointer`,
   `text_input`, `clipboard`, `settings`, `font`, `flatten`, `graphics`, `atlas`, `draw`, and
   `main` (start, the poll loop, the program's lifetime). Single threaded.
 - `host/shaders/*.comp` compile to `build/gen/*.spv` and go in with `#embed`.
-- FreeType 2.15.0 is vendored (`download-deps.sh`) and built into otkhost: only the modules in
+- FreeType 2.15.0 is vendored (`download-deps.sh`) and built into sc2host: only the modules in
   `host/freetype_modules.h` (TrueType, CFF, hinting, smooth rendering).
-- `examples/*.c` are programs: strict C99, linked against `libotk.a` alone. Run them with
-  `build/otkhost build/examples/hello`.
+- `examples/*.c` are programs: strict C99, linked against `libsc2.a` alone. Run them with
+  `build/sc2host build/examples/hello`.
 - Shared structs list fields largest to smallest. The areas come first, so `pixels` sits at
   offset 0, and a one-page header puts `screen` on a page. Each writer's fields stay together.
-- A program with no host fails `otk_open` with one `otk:` line; otkhost fails with one
-  `otkhost:` line.
-- Only `otk_*` is visible in `libotk.a` and `.so`. `tests/run.sh` checks this, the C99 header,
+- A program with no host fails `sc2_open` with one `sc2:` line; sc2host fails with one
+  `sc2host:` line.
+- Only `sc2_*` is visible in `libsc2.a` and `.so`. `tests/run.sh` checks this, the C99 header,
   and the contract itself with a minimal host (`tests/contract.c`) that needs no Wayland.
 
 The rules between program and host (`include/contract.md` has them in full):
@@ -56,7 +56,7 @@ Scroll is eighths modulo 8 (`scroll_column`, `scroll_row`), for smoothness only.
 moves anything a whole cell: the program moves content by whole cells itself, by rewriting
 cells, so nothing sits between cells at rest.
 
-Seams for patches (users vendor OTK and patch their own copy; OTK ships no patches):
+Seams for patches (users vendor sc\*2 and patch their own copy; sc\*2 ships no patches):
 
 - A new protocol is one row in `wanted_globals` (`wayland.c`) and one field in `Globals`.
 - A setting that changes at run time is a few lines in `settings_update` (`settings.c`), which
@@ -73,7 +73,7 @@ Strict order: always work on the lowest unfinished milestone.
 ### M1: a window (built 2026-11-13)
 
 `window-toplevel`, `tick-exchange`.
-Done: a window opens, `columns` and `rows` follow a resize, and `otk_tick` returns 0 on close.
+Done: a window opens, `columns` and `rows` follow a resize, and `sc2_tick` returns 0 on close.
 
 ### M2: text (built 2026-11-13)
 
@@ -98,7 +98,7 @@ changes. An image ignores its node's scroll. `examples/image.c` shows it.
 `clipboard-offers`, `clipboard-paste`, `clipboard-copy`, `clipboard-drop`.
 Done: `paste_offered` follows the clipboard. Every paste request and every drop gets one
 answer through `paste_sequence`: the bytes, or `paste_length` 0 when the type is not offered,
-the read fails, the bytes run past `OTK_PASTE_CAPACITY`, or a newer request replaces it. Bytes are
+the read fails, the bytes run past `SC2_PASTE_CAPACITY`, or a newer request replaces it. Bytes are
 read into the host's own buffer and reach `incoming` only once complete. Copy serves reads
 from the host's own copy (`offered`), taken from one whole commit; a newer copy cuts off reads
 still running. All pipes are non-blocking on the host's poll, and the host ignores `SIGPIPE`,
@@ -111,7 +111,7 @@ so a closed pipe gives `EPIPE`.
 it cannot be tested on hedl.
 
 - **Idle.** `animating` is gone: a program would have to keep it in step with what it draws.
-  A tick that brought no input and changed nothing is idle, and the next `otk_tick` sleeps
+  A tick that brought no input and changed nothing is idle, and the next `sc2_tick` sleeps
   until input differs from what the program last saw. `idle_tick_rate`, set once, keeps a
   program ticking while idle (a cursor blink, a pty); 0 sleeps until input. Idle `hello` uses
   no CPU after startup.
@@ -119,30 +119,30 @@ it cannot be tested on hedl.
   reported in `host_font_size`); the cell is that times the output scale, and the host reports
   the grid that fits. A scale change keeps the grid; a font size change zooms it. Either
   reloads the font and empties the atlas on the next draw. Scale tested by flipping 1x and 1.5x
-  in a scratch copy (hedl sends 1x); font size under otkhost: 40 gives 95x25 where 20 gives
+  in a scratch copy (hedl sends 1x); font size under sc2host: 40 gives 95x25 where 20 gives
   190x50. `hello` zooms with Ctrl+=, Ctrl+- and Ctrl+0.
 - **Settings** are one struct of defaults in `host/settings.c`: font, size, palette, first
   window size, rows per wheel notch, and the cursor theme and size for the xcursor fallback.
-  otkhost reads no files and no environment (the fallback no longer reads `XCURSOR_*`).
+  sc2host reads no files and no environment (the fallback no longer reads `XCURSOR_*`).
   Users patch the values, the same way they patch anything else. A missing font or a 0 size
-  stops otkhost with one `otkhost:` line.
+  stops sc2host with one `sc2host:` line.
 `seat-loss` is built (2026-11-13). `atlas-eviction` and `cursor-fallback` are built (2026-11-14).
 
 ## Workstream H: program metadata
 
 Built 2026-11-14: `title` and `app_id`, written by the program and applied after each commit.
 An empty title shows the program's file name. Size requests and see-through areas are left to
-hosts that want them (patches); otkhost is one program, one window.
+hosts that want them (patches); sc2host is one program, one window.
 
 Hardened the same day against programs that break the contract (`include/contract.md`, "What
 a host must not trust"): sealed memfd, commit reads that give up after 100 ms, at most
-`OTK_CELL_CAPACITY` packed cells per frame, strict UTF-8 for names, and a 2 s grace after
-`closed` before the program is killed. A lost compositor makes otkhost exit 1.
+`SC2_CELL_CAPACITY` packed cells per frame, strict UTF-8 for names, and a 2 s grace after
+`closed` before the program is killed. A lost compositor makes sc2host exit 1.
 `tests/hostile.c` covers the first three under a Wayland session.
 
 ## Workstream C: core
 
-`otk_tick` order: publish, wait, receive. So the program reads the newest input.
+`sc2_tick` order: publish, wait, receive. So the program reads the newest input.
 
 <!-- (skeleton :tags core) -->
 

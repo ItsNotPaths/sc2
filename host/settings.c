@@ -2,7 +2,7 @@
 
 enum { FONT_SIZE_LOWEST = 6, FONT_SIZE_HIGHEST = 200 };  // a program's font_size is held to these
 
-// Users vendor OTK and patch these. otkhost stops when the font is missing.
+// Users vendor sc*2 and patch these. sc2host stops when the font is missing.
 static const Settings defaults = {
     .font_path = "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
     .font_size = 20,

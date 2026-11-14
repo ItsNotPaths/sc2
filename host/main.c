@@ -1,4 +1,4 @@
-// otkhost PROGRAM [ARGUMENT...]: runs one OTK program and draws it in a Wayland window.
+// sc2host PROGRAM [ARGUMENT...]: runs one sc*2 program and draws it in a Wayland window.
 #include <fcntl.h>
 #include <sched.h>
 #include <signal.h>
@@ -23,7 +23,7 @@ enum {
 static Host host;
 
 bool failed(const char *reason) {
-    fprintf(stderr, "otkhost: %s\n", reason);
+    fprintf(stderr, "sc2host: %s\n", reason);
     return false;
 }
 
@@ -62,7 +62,7 @@ bool commit_read_retry(const Host *host, CommitRead *read) {
 }
 
 static bool commit_take(Host *host, Commit *commit) {
-    const otk_screen *committed = host->committed;
+    const sc2_screen *committed = host->committed;
     CommitRead read = commit_read_begin(host);
     do {
         memcpy(commit->title, committed->title, sizeof commit->title);
@@ -79,19 +79,19 @@ static bool commit_take(Host *host, Commit *commit) {
 
 // Sealed, so the program cannot shrink the memory under the host's reads.
 static bool shared_create(Host *host) {
-    host->memory_file = memfd_create("otk-shared", MFD_CLOEXEC | MFD_ALLOW_SEALING);
-    if (host->memory_file < 0 || ftruncate(host->memory_file, sizeof(otk_shared)) < 0
+    host->memory_file = memfd_create("sc2-shared", MFD_CLOEXEC | MFD_ALLOW_SEALING);
+    if (host->memory_file < 0 || ftruncate(host->memory_file, sizeof(sc2_shared)) < 0
         || fcntl(host->memory_file, F_ADD_SEALS, F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_SEAL) < 0)
         return failed("cannot make the shared memory");
-    void *address = mmap(nullptr, sizeof(otk_shared), PROT_READ | PROT_WRITE, MAP_SHARED, host->memory_file, 0);
+    void *address = mmap(nullptr, sizeof(sc2_shared), PROT_READ | PROT_WRITE, MAP_SHARED, host->memory_file, 0);
     if (address == MAP_FAILED)
         return failed("cannot map the shared memory");
     host->shared = address;
-    host->shared->header = (otk_header){.magic = OTK_MAGIC, .version = OTK_VERSION};
+    host->shared->header = (sc2_header){.magic = SC2_MAGIC, .version = SC2_VERSION};
     host->screen = &host->shared->screen;
     host->incoming = &host->shared->incoming;
     host->committed = &host->shared->committed;
-    host->incoming->mouse_node = OTK_MOUSE_OUTSIDE;
+    host->incoming->mouse_node = SC2_MOUSE_OUTSIDE;
     return true;
 }
 
@@ -107,7 +107,7 @@ static bool events_create(Host *host) {
 // Runs before the GPU starts its threads: between fork and exec only async-signal-safe calls.
 static bool program_start(Host *host, char **command) {
     int inherited[] = {host->memory_file, host->commit_event, host->input_event};
-    const char *names[] = {"OTK_SHARED_FD", "OTK_COMMIT_FD", "OTK_INPUT_FD"};
+    const char *names[] = {"SC2_SHARED_FD", "SC2_COMMIT_FD", "SC2_INPUT_FD"};
     for (int index = 0; index < 3; index++) {
         char number[16];
         snprintf(number, sizeof number, "%d", inherited[index]);
@@ -190,7 +190,7 @@ static void host_close(Host *host) {
     window_close(host);
     wayland_disconnect(host);
     if (host->shared)
-        munmap(host->shared, sizeof(otk_shared));
+        munmap(host->shared, sizeof(sc2_shared));
 }
 
 // The program learns of a close through closed. One that has not exited after the patience is killed,
@@ -213,7 +213,7 @@ static int program_wait(Host *host) {
 
 int main(int argument_count, char **arguments) {
     if (argument_count < 2) {
-        fprintf(stderr, "usage: otkhost PROGRAM [ARGUMENT...]\n");
+        fprintf(stderr, "usage: sc2host PROGRAM [ARGUMENT...]\n");
         return 2;
     }
     signal(SIGPIPE, SIG_IGN);  // a closed clipboard pipe fails with EPIPE instead

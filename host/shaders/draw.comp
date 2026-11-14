@@ -7,7 +7,7 @@
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
-const uint NODE_CELLS     = 1u;  // otk.h
+const uint NODE_CELLS     = 1u;  // sc2.h
 const uint NODE_PIXELS    = 2u;
 const uint CODEPOINT_MASK = 0x1fffffu;
 const uint BOLD_BIT       = 1u << 29;

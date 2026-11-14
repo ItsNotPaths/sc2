@@ -1,28 +1,28 @@
-# The OTK contract
+# The sc\*2 contract
 
 A program describes its screen in shared memory. A host draws that screen and writes input
-back. This file and `otk.h` are the whole contract. `libotk/` implements the program's side,
-and `host/` (otkhost) is one host. Anyone can write another host from these two files.
+back. This file and `sc2.h` are the whole contract. `libsc2/` implements the program's side,
+and `host/` (sc2host) is one host. Anyone can write another host from these two files.
 
 ## How a host starts a program
 
 The host:
 
-1. Creates a memfd of `sizeof(otk_shared)` bytes, seals it against shrinking and growing,
-   maps it, and writes `OTK_MAGIC` and `OTK_VERSION` into the header. Untouched pages cost
+1. Creates a memfd of `sizeof(sc2_shared)` bytes, seals it against shrinking and growing,
+   maps it, and writes `SC2_MAGIC` and `SC2_VERSION` into the header. Untouched pages cost
    nothing, so the size is mostly address space.
 2. Writes the first input into `incoming`: at least `columns`, `rows`, `palette`, and
-   `mouse_node` set to `OTK_MOUSE_OUTSIDE`.
+   `mouse_node` set to `SC2_MOUSE_OUTSIDE`.
 3. Creates two eventfds: one the program writes after each commit, one the host writes after
    input changes.
 4. Runs the program with the three fds inherited (close-on-exec cleared) and their numbers in
-   `OTK_SHARED_FD`, `OTK_COMMIT_FD` and `OTK_INPUT_FD`.
+   `SC2_SHARED_FD`, `SC2_COMMIT_FD` and `SC2_INPUT_FD`.
 
-`otk_open` returns 0 when those variables are missing, and when the magic or version differs.
+`sc2_open` returns 0 when those variables are missing, and when the magic or version differs.
 
 ## Memory
 
-`otk_shared` holds a one-page header and three `otk_screen` regions.
+`sc2_shared` holds a one-page header and three `sc2_screen` regions.
 
 | Region | Written by | Read by |
 |---|---|---|
@@ -31,7 +31,7 @@ The host:
 | `incoming` | the host | the program, at each tick |
 | `committed` | the program, at each tick | the host |
 
-In `otk_screen`, the fields from `key_transitions` up to `nodes` are input. The fields from
+In `sc2_screen`, the fields from `key_transitions` up to `nodes` are input. The fields from
 `nodes` to the end, the cells of each cell node, and `copy` belong to the program.
 
 ## Sequences
@@ -40,7 +40,7 @@ In `otk_screen`, the fields from `key_transitions` up to `nodes` are input. The 
 1 to the sequence before it writes, so the sequence is odd while it writes, and adds 1 again
 after. A reader reads the sequence, reads what it needs, then reads the sequence again. If the
 first value was odd, or the two values differ, the read may be torn, and the reader reads
-again. Neither side waits for the other in any other way. `libotk/contract.h` has this in C.
+again. Neither side waits for the other in any other way. `libsc2/contract.h` has this in C.
 
 ## Commits
 
@@ -68,7 +68,7 @@ eventfd.
 
 `title` and `app_id` are UTF-8 and end at the first 0 byte. The host applies them after each
 commit, so a program can change its title while it runs. An empty `title` leaves the naming to
-the host; otkhost shows the program's file name.
+the host; sc2host shows the program's file name.
 
 ## Font size
 
@@ -79,11 +79,11 @@ zooms on Ctrl+= writes a new `font_size` and lays out in the grid that comes bac
 
 ## Closing
 
-The host sets `closed` in `incoming`. `otk_tick` then returns 0 and the program exits. The
-host learns of the exit from the process itself; otkhost watches a pidfd.
+The host sets `closed` in `incoming`. `sc2_tick` then returns 0 and the program exits. The
+host learns of the exit from the process itself; sc2host watches a pidfd.
 
-The contract does not tell a program that its host died. otkhost sets `PR_SET_PDEATHSIG`, so
-the program gets `SIGTERM` when otkhost exits.
+The contract does not tell a program that its host died. sc2host sets `PR_SET_PDEATHSIG`, so
+the program gets `SIGTERM` when sc2host exits.
 
 ## What a host must not trust
 
@@ -91,21 +91,21 @@ Everything the program writes may be wrong, by accident or on purpose. A host ke
 whatever the program does:
 
 - It seals the memfd, so the program cannot shrink the memory under the host's reads.
-- It reads only the cells and bytes the node rules allow (`libotk/contract.h`), clamps
+- It reads only the cells and bytes the node rules allow (`libsc2/contract.h`), clamps
   `copy_length`, ends `title` and `app_id` itself, and replaces bytes that are not valid UTF-8.
 - It gives up on a read when the program keeps `commit_sequence` odd, and tries again at the
-  next commit. otkhost waits 100 ms.
-- It bounds its own work per frame. otkhost packs at most `OTK_CELL_CAPACITY` cells, however
+  next commit. sc2host waits 100 ms.
+- It bounds its own work per frame. sc2host packs at most `SC2_CELL_CAPACITY` cells, however
   many nodes share them, and holds `font_size` between 6 and 200.
-- It kills a program that has not exited some time after `closed`. otkhost waits 2 s.
+- It kills a program that has not exited some time after `closed`. sc2host waits 2 s.
 
-`tests/hostile.c` breaks the contract on purpose, and `tests/run.sh` runs it under otkhost.
+`tests/hostile.c` breaks the contract on purpose, and `tests/run.sh` runs it under sc2host.
 
 ## What the contract leaves to the host
 
 The font file, the scale, which keys reach the program, how the clipboard is reached,
-and how many programs it shows and where. otkhost shows one program in one Wayland window.
+and how many programs it shows and where. sc2host shows one program in one Wayland window.
 
 ## Versions
 
-`OTK_VERSION` changes whenever the layout of `otk_shared` or a rule in this file changes.
+`SC2_VERSION` changes whenever the layout of `sc2_shared` or a rule in this file changes.

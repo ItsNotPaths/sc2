@@ -123,7 +123,7 @@ void keyboard_repeat(Host *host) {
 
 // Runs inside an input section.
 void text_append(Host *host, uint32_t codepoint) {
-    otk_screen *incoming = host->incoming;
-    incoming->text[incoming->text_write_index % OTK_TEXT_CAPACITY] = codepoint;
+    sc2_screen *incoming = host->incoming;
+    incoming->text[incoming->text_write_index % SC2_TEXT_CAPACITY] = codepoint;
     incoming->text_write_index++;
 }

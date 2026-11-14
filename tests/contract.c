@@ -15,7 +15,7 @@
 enum { COLUMNS = 8, WAIT_MILLISECONDS = 2000 };
 
 typedef struct {
-    otk_shared *shared;
+    sc2_shared *shared;
     int         commit_event, input_event;
     pid_t       program_id;
 } Hosted;
@@ -29,35 +29,35 @@ static void check(bool passed, const char *requirement) {
 
 // The program: shows what was typed, or "ready" before anything is.
 static int program_run(void) {
-    otk_screen *screen = otk_open();
+    sc2_screen *screen = sc2_open();
     if (!screen)
         return 1;
     uint32_t typed = 0;
-    while (otk_tick(screen)) {
+    while (sc2_tick(screen)) {
         typed = screen->text_write_index;
-        screen->nodes[0] = (otk_node){.kind = OTK_NODE_CELLS, .columns = COLUMNS, .rows = 1,
+        screen->nodes[0] = (sc2_node){.kind = SC2_NODE_CELLS, .columns = COLUMNS, .rows = 1,
                                       .content_width = COLUMNS, .content_height = 1};
         const char *ready = "ready";
         for (int column = 0; column < COLUMNS; column++)
             screen->cells[column] = typed ? (column < (int)typed ? screen->text[column] : ' ')
                                           : (column < 5 ? (uint32_t)ready[column] : ' ');
     }
-    otk_close(screen);
+    sc2_close(screen);
     return 0;
 }
 
 static Hosted program_start(const char *self, uint32_t version) {
     Hosted hosted = {};
     int memory_file = memfd_create("contract-test", 0);
-    ftruncate(memory_file, sizeof(otk_shared));
-    hosted.shared = mmap(nullptr, sizeof(otk_shared), PROT_READ | PROT_WRITE, MAP_SHARED, memory_file, 0);
-    hosted.shared->header = (otk_header){.magic = OTK_MAGIC, .version = version};
+    ftruncate(memory_file, sizeof(sc2_shared));
+    hosted.shared = mmap(nullptr, sizeof(sc2_shared), PROT_READ | PROT_WRITE, MAP_SHARED, memory_file, 0);
+    hosted.shared->header = (sc2_header){.magic = SC2_MAGIC, .version = version};
     hosted.shared->incoming.columns = COLUMNS;
     hosted.shared->incoming.rows = 1;
     hosted.commit_event = eventfd(0, 0);
     hosted.input_event = eventfd(0, 0);
     int inherited[] = {memory_file, hosted.commit_event, hosted.input_event};
-    const char *names[] = {"OTK_SHARED_FD", "OTK_COMMIT_FD", "OTK_INPUT_FD"};
+    const char *names[] = {"SC2_SHARED_FD", "SC2_COMMIT_FD", "SC2_INPUT_FD"};
     for (int index = 0; index < 3; index++) {
         char number[16];
         snprintf(number, sizeof number, "%d", inherited[index]);
@@ -104,10 +104,10 @@ static bool commit_shows(const Hosted *hosted, const char *expected) {
 }
 
 static void input_write(Hosted *hosted, const char *typed, bool closed) {
-    otk_screen *incoming = &hosted->shared->incoming;
+    sc2_screen *incoming = &hosted->shared->incoming;
     sequence_write_begin(&hosted->shared->header.input_sequence);
     for (const char *character = typed; *character; character++)
-        incoming->text[incoming->text_write_index++ % OTK_TEXT_CAPACITY] = (uint8_t)*character;
+        incoming->text[incoming->text_write_index++ % SC2_TEXT_CAPACITY] = (uint8_t)*character;
     incoming->closed = closed;
     sequence_write_end(&hosted->shared->header.input_sequence);
     uint64_t one = 1;
@@ -130,10 +130,10 @@ int main(int argument_count, char **arguments) {
     if (argument_count > 1 && strcmp(arguments[1], "program") == 0)
         return program_run();
 
-    unsetenv("OTK_SHARED_FD");
-    check(otk_open() == nullptr, "a program without a host fails to open");
+    unsetenv("SC2_SHARED_FD");
+    check(sc2_open() == nullptr, "a program without a host fails to open");
 
-    Hosted hosted = program_start(arguments[0], OTK_VERSION);
+    Hosted hosted = program_start(arguments[0], SC2_VERSION);
     check(commit_shows(&hosted, "ready   "), "the program's drawing arrives in a whole commit");
 
     input_write(&hosted, "hi", false);
@@ -142,7 +142,7 @@ int main(int argument_count, char **arguments) {
     input_write(&hosted, "", true);
     check(exit_status(hosted.program_id) == 0, "closed ends the program");
 
-    Hosted wrong_version = program_start(arguments[0], OTK_VERSION + 1);
+    Hosted wrong_version = program_start(arguments[0], SC2_VERSION + 1);
     check(exit_status(wrong_version.program_id) == 1, "a program refuses another contract version");
 
     return failures ? 1 : 0;

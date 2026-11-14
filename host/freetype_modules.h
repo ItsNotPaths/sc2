@@ -1,4 +1,4 @@
-// FreeType modules built into OTK: TrueType and CFF fonts, hinting, smooth rendering.
+// FreeType modules built into sc*2: TrueType and CFF fonts, hinting, smooth rendering.
 FT_USE_MODULE( FT_Module_Class, autofit_module_class )
 FT_USE_MODULE( FT_Driver_ClassRec, tt_driver_class )
 FT_USE_MODULE( FT_Driver_ClassRec, cff_driver_class )

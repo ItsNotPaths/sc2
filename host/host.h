@@ -1,4 +1,4 @@
-// otkhost: runs one OTK program and draws it in a Wayland window.
+// sc2host: runs one sc*2 program and draws it in a Wayland window.
 #pragma once
 
 #include <poll.h>
@@ -88,8 +88,8 @@ typedef struct {
     uint32_t length;                           // bytes read so far
     int16_t  drop_column, drop_row;            // eighths, where the drop happened
     uint8_t  drop_node;
-    uint8_t  data;                             // OTK_DATA_ bit
-    uint8_t  source;                           // OTK_PASTE_CLIPBOARD or OTK_PASTE_DROP
+    uint8_t  data;                             // SC2_DATA_ bit
+    uint8_t  source;                           // SC2_PASTE_CLIPBOARD or SC2_PASTE_DROP
     bool     active;
 } Receive;  // the paste or drop being read
 
@@ -217,10 +217,10 @@ typedef struct {
 } Placement;
 
 typedef struct {
-    otk_shared *shared;                        // the memory shared with the program
-    otk_screen *screen;                        // the program's own; read only for pixels
-    otk_screen *incoming;                      // written only between input_begin and input_end
-    otk_screen *committed;                     // read only under commit_sequence
+    sc2_shared *shared;                        // the memory shared with the program
+    sc2_screen *screen;                        // the program's own; read only for pixels
+    sc2_screen *incoming;                      // written only between input_begin and input_end
+    sc2_screen *committed;                     // read only under commit_sequence
     uint8_t     input_before[INPUT_SIZE];      // incoming's input at input_begin, to tell if it changed
     int         memory_file;                   // memfd behind shared
     int         commit_event;                  // eventfd; the program writes it after each commit
@@ -325,7 +325,7 @@ void font_close(Font *font);
 void font_draw(const Font *font, uint32_t codepoint, bool bold, uint8_t *coverage);
 
 // flatten.c
-void     flatten(const otk_node nodes[NODE_COUNT], Rectangle window, Placement placements[NODE_COUNT]);
+void     flatten(const sc2_node nodes[NODE_COUNT], Rectangle window, Placement placements[NODE_COUNT]);
 uint8_t  node_at(const Placement placements[NODE_COUNT], int32_t column, int32_t row);
 
 // graphics.c

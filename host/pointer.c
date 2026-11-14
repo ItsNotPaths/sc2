@@ -4,14 +4,14 @@
 
 // Runs after the mouse moves, enters or leaves, and after each new layout.
 void pointer_hit(Host *host) {
-    otk_screen *incoming = host->incoming;
+    sc2_screen *incoming = host->incoming;
     incoming->mouse_node = host->pointer.inside
         ? node_at(host->placements, incoming->mouse_column, incoming->mouse_row)
-        : OTK_MOUSE_OUTSIDE;
+        : SC2_MOUSE_OUTSIDE;
 }
 
 static void pointer_move(Host *host, wl_fixed_t x, wl_fixed_t y) {
-    otk_screen *incoming = host->incoming;
+    sc2_screen *incoming = host->incoming;
     incoming->mouse_column = fixed_to_eighths(x, host->font.cell_width, host->font.scale);
     incoming->mouse_row = fixed_to_eighths(y, host->font.cell_height, host->font.scale);
     pointer_hit(host);

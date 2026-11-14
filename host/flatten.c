@@ -15,9 +15,9 @@ static bool contains(Rectangle rectangle, int32_t column, int32_t row) {
 
 // One pass in index order: a parent always has a lower index than its child.
 // Node 0 is the window. A node that breaks the parent rule is hidden, and so are its children.
-void flatten(const otk_node nodes[NODE_COUNT], Rectangle window, Placement placements[NODE_COUNT]) {
+void flatten(const sc2_node nodes[NODE_COUNT], Rectangle window, Placement placements[NODE_COUNT]) {
     for (int index = 0; index < NODE_COUNT; index++) {
-        const otk_node *node = &nodes[index];
+        const sc2_node *node = &nodes[index];
         Placement *placement = &placements[index];
         if (index == 0) {
             placement->area = window;

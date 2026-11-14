@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ./build.sh          debug build: build/libotk.a and .so for programs, build/otkhost, build/examples
+# ./build.sh          debug build: build/libsc2.a and .so for programs, build/sc2host, build/examples
 # ./build.sh release  optimised build
 set -euo pipefail
 
@@ -53,19 +53,19 @@ compile() {
     objects+=("$object")
 }
 
-# The library programs link: only the contract, no Wayland and no GPU. Only otk_* stays global.
+# The library programs link: only the contract, no Wayland and no GPU. Only sc2_* stays global.
 build_library() {
     mkdir -p "$BUILD/objects"
     local objects=() source
-    for source in "$ROOT"/libotk/*.c; do
+    for source in "$ROOT"/libsc2/*.c; do
         compile "$source" -std=c23 -D_GNU_SOURCE -Wall -Wextra -fPIC -fvisibility=hidden "$@" \
-            -I "$ROOT/include" -I "$ROOT/libotk"
+            -I "$ROOT/include" -I "$ROOT/libsc2"
     done
-    ld -r -o "$BUILD/libotk.o" "${objects[@]}"
-    objcopy --wildcard --keep-global-symbol='otk_*' "$BUILD/libotk.o"
-    rm -f "$BUILD/libotk.a"
-    ar rcs "$BUILD/libotk.a" "$BUILD/libotk.o"
-    "$CC" -shared -Wl,--no-undefined -o "$BUILD/libotk.so" "$BUILD/libotk.o"
+    ld -r -o "$BUILD/libsc2.o" "${objects[@]}"
+    objcopy --wildcard --keep-global-symbol='sc2_*' "$BUILD/libsc2.o"
+    rm -f "$BUILD/libsc2.a"
+    ar rcs "$BUILD/libsc2.a" "$BUILD/libsc2.o"
+    "$CC" -shared -Wl,--no-undefined -o "$BUILD/libsc2.so" "$BUILD/libsc2.o"
 }
 
 # The reference host, with FreeType built in from the modules in host/freetype_modules.h.
@@ -74,22 +74,22 @@ build_host() {
     local objects=() source file
     for source in "$ROOT"/host/*.c "$BUILD"/gen/*.c; do
         compile "$source" -std=c23 -D_GNU_SOURCE -Wall -Wextra "$@" \
-            -I "$ROOT/include" -I "$ROOT/libotk" -I "$BUILD/gen" -I "$FREETYPE/include" --embed-dir="$BUILD/gen" \
+            -I "$ROOT/include" -I "$ROOT/libsc2" -I "$BUILD/gen" -I "$FREETYPE/include" --embed-dir="$BUILD/gen" \
             $(pkg-config --cflags "${PACKAGES[@]}")
     done
     for file in "${FREETYPE_FILES[@]}"; do
         compile "$FREETYPE/src/$file" -DFT2_BUILD_LIBRARY -DFT_CONFIG_MODULES_H='"freetype_modules.h"' "$@" \
             -I "$FREETYPE/include" -I "$ROOT/host"
     done
-    "$CC" -Wl,--no-undefined -o "$BUILD/otkhost" "${objects[@]}" $(pkg-config --libs "${PACKAGES[@]}") -lm
+    "$CC" -Wl,--no-undefined -o "$BUILD/sc2host" "${objects[@]}" $(pkg-config --libs "${PACKAGES[@]}") -lm
 }
 
-# examples/NAME.c -> build/examples/NAME, strict C99 like a binding, linked against libotk.a alone.
+# examples/NAME.c -> build/examples/NAME, strict C99 like a binding, linked against libsc2.a alone.
 build_examples() {
     mkdir -p "$BUILD/examples"
     local example
     for example in "$ROOT"/examples/*.c; do
-        "$CC" -std=c99 -Wall -Wextra "$@" -I "$ROOT/include" "$example" "$BUILD/libotk.a" \
+        "$CC" -std=c99 -Wall -Wextra "$@" -I "$ROOT/include" "$example" "$BUILD/libsc2.a" \
             -o "$BUILD/examples/$(basename "$example" .c)"
     done
 }

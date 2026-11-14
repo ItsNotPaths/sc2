@@ -5,8 +5,8 @@
 // Both tables are open addressing with linear probing, the same in draw.comp.
 // A key is the codepoint with the cell's bold bit; 0 marks an empty entry.
 enum {
-    BOLD_BIT       = 1u << OTK_CELL_BOLD_SHIFT,
-    CODEPOINT_MASK = (1u << OTK_CELL_FOREGROUND_SHIFT) - 1,
+    BOLD_BIT       = 1u << SC2_CELL_BOLD_SHIFT,
+    CODEPOINT_MASK = (1u << SC2_CELL_FOREGROUND_SHIFT) - 1,
 };
 
 static uint32_t glyph_hash(uint32_t key) {

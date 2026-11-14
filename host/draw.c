@@ -32,11 +32,11 @@ static int32_t to_pixels(int32_t eighths, uint32_t cell_size) {
     return (int32_t)floor_divide((int64_t)eighths * cell_size, 8);
 }
 
-// A node's cells to pack, or none once the frame holds OTK_CELL_CAPACITY: a program cannot make
+// A node's cells to pack, or none once the frame holds SC2_CELL_CAPACITY: a program cannot make
 // the host pack more than its whole cell area, however many nodes share it.
-static uint32_t cells_to_pack(const otk_node *node, uint64_t packed) {
+static uint32_t cells_to_pack(const sc2_node *node, uint64_t packed) {
     uint32_t count = node_cell_count(node);
-    return packed + count > OTK_CELL_CAPACITY ? 0 : count;
+    return packed + count > SC2_CELL_CAPACITY ? 0 : count;
 }
 
 static bool visible(Rectangle clip) {
@@ -66,7 +66,7 @@ static bool pixels_reserve(Host *host, uint32_t end) {
 }
 
 // Copies a node's image to the GPU when it changed. Only where import failed.
-static void image_copy(Host *host, int index, const otk_node *node, uint32_t size) {
+static void image_copy(Host *host, int index, const sc2_node *node, uint32_t size) {
     CopiedImage *copied = &host->drawing.copied_images[index];
     CopiedImage current = {node->storage_offset, size, node->sequence};
     if (host->graphics.host_import || memcmp(copied, &current, sizeof current) == 0)
@@ -77,7 +77,7 @@ static void image_copy(Host *host, int index, const otk_node *node, uint32_t siz
 
 // Flattens the committed nodes, packs the cells of the visible ones and readies their images.
 static bool frame_build(Host *host) {
-    const otk_screen *committed = host->committed;
+    const sc2_screen *committed = host->committed;
     const Font *font = &host->font;
     const Atlas *atlas = &host->atlas;
     Drawing *drawing = &host->drawing;
@@ -90,7 +90,7 @@ static bool frame_build(Host *host) {
     uint64_t cell_count = 0;
     uint32_t pixel_end = 0;
     for (int index = 0; index < NODE_COUNT; index++) {
-        const otk_node *node = &committed->nodes[index];
+        const sc2_node *node = &committed->nodes[index];
         if (!visible(placements[index].clip))
             continue;
         node_count = index + 1;
@@ -99,7 +99,7 @@ static bool frame_build(Host *host) {
         if (pixel_size && node->storage_offset + pixel_size > pixel_end)
             pixel_end = node->storage_offset + pixel_size;
     }
-    if (!buffer_reserve(&host->graphics, &drawing->cells, cell_count * sizeof(otk_cell)))
+    if (!buffer_reserve(&host->graphics, &drawing->cells, cell_count * sizeof(sc2_cell)))
         return failed("cannot grow the cell buffer");
     if (!pixels_reserve(host, pixel_end))
         return failed("cannot grow the pixel buffer");
@@ -121,10 +121,10 @@ static bool frame_build(Host *host) {
     frame->node_count = node_count;
     frame->frame_number = ++drawing->frame_number;
 
-    otk_cell *packed_cells = drawing->cells.mapped;
+    sc2_cell *packed_cells = drawing->cells.mapped;
     uint32_t packed = 0;
     for (uint32_t index = 0; index < node_count; index++) {
-        const otk_node *node = &committed->nodes[index];
+        const sc2_node *node = &committed->nodes[index];
         const Placement *placement = &placements[index];
         Rectangle clip = placement->clip;
         uint32_t count = visible(clip) ? cells_to_pack(node, packed) : 0;
@@ -139,14 +139,14 @@ static bool frame_build(Host *host) {
             .clip_bottom = to_pixels(clip.bottom, font->cell_height),
             .content_left = to_pixels(content_left, font->cell_width),
             .content_top = to_pixels(content_top, font->cell_height),
-            .kind = count ? OTK_NODE_CELLS : pixel_size ? OTK_NODE_PIXELS : OTK_NODE_EMPTY,
+            .kind = count ? SC2_NODE_CELLS : pixel_size ? SC2_NODE_PIXELS : SC2_NODE_EMPTY,
             .storage_offset = pixel_size ? node->storage_offset : packed,
             .content_width = node->content_width,
             .content_height = node->content_height,
             .area_width = to_pixels(area.right, font->cell_width) - to_pixels(area.left, font->cell_width),
             .area_height = to_pixels(area.bottom, font->cell_height) - to_pixels(area.top, font->cell_height),
         };
-        memcpy(&packed_cells[packed], &committed->cells[node->storage_offset], count * sizeof(otk_cell));
+        memcpy(&packed_cells[packed], &committed->cells[node->storage_offset], count * sizeof(sc2_cell));
         packed += count;
         if (pixel_size)
             image_copy(host, index, node, pixel_size);
