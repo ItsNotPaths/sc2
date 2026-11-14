@@ -124,6 +124,6 @@ void keyboard_repeat(Library *library) {
 // Caller holds the lock.
 void text_append(Library *library, uint32_t codepoint) {
     otk_screen *incoming = library->incoming;
-    incoming->text[incoming->text_write_index % TEXT_CAPACITY] = codepoint;
+    incoming->text[incoming->text_write_index % OTK_TEXT_CAPACITY] = codepoint;
     incoming->text_write_index++;
 }

@@ -5,8 +5,8 @@
 enum { IMAGE_SIZE = 256, IMAGE_COLUMNS = 40, IMAGE_ROWS = 20 };
 enum { IMAGE = 1, TEXT = 2 };
 
-static Cell cell(uint32_t codepoint, uint32_t foreground) {
-    return codepoint << CELL_CODEPOINT_SHIFT | foreground << CELL_FOREGROUND_SHIFT | 1u << CELL_CLEAR_SHIFT;
+static otk_cell cell(uint32_t codepoint, uint32_t foreground) {
+    return codepoint << OTK_CELL_CODEPOINT_SHIFT | foreground << OTK_CELL_FOREGROUND_SHIFT | 1u << OTK_CELL_CLEAR_SHIFT;
 }
 
 // The mouse moves in eighths of a cell.
@@ -42,11 +42,11 @@ int main(void) {
     int image_column = 2, image_row = 1;
     int grab_column = 0, grab_row = 0;  // from the image's top left to the mouse
     int dragging = 0;
-    uint8_t left_transitions = screen->mouse_transitions[MOUSE_LEFT];
+    uint8_t left_transitions = screen->mouse_transitions[OTK_MOUSE_LEFT];
     for (int phase = 0; otk_tick(screen); phase++) {
         int mouse_column = cell_from_eighths(screen->mouse_column);
         int mouse_row = cell_from_eighths(screen->mouse_row);
-        uint8_t transitions = screen->mouse_transitions[MOUSE_LEFT];
+        uint8_t transitions = screen->mouse_transitions[OTK_MOUSE_LEFT];
         int pressed = transitions != left_transitions && transitions % 2 == 1;
         left_transitions = transitions;
         if (pressed && (screen->mouse_node == IMAGE || screen->mouse_node == TEXT)) {
@@ -61,13 +61,13 @@ int main(void) {
             image_row = mouse_row - grab_row;
         }
 
-        screen->nodes[IMAGE] = (Node){
-            .kind = NODE_PIXELS, .column = (int16_t)image_column, .row = (int16_t)image_row,
+        screen->nodes[IMAGE] = (otk_node){
+            .kind = OTK_NODE_PIXELS, .column = (int16_t)image_column, .row = (int16_t)image_row,
             .columns = IMAGE_COLUMNS, .rows = IMAGE_ROWS,
             .content_width = IMAGE_SIZE, .content_height = IMAGE_SIZE, .sequence = (uint32_t)phase,
         };
-        screen->nodes[TEXT] = (Node){
-            .kind = NODE_CELLS, .column = (int16_t)image_column, .row = (int16_t)image_row,
+        screen->nodes[TEXT] = (otk_node){
+            .kind = OTK_NODE_CELLS, .column = (int16_t)image_column, .row = (int16_t)image_row,
             .columns = IMAGE_COLUMNS, .rows = IMAGE_ROWS,
             .content_width = IMAGE_COLUMNS, .content_height = IMAGE_ROWS,
         };

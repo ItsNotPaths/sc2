@@ -15,9 +15,9 @@ static bool contains(Rectangle rectangle, int32_t column, int32_t row) {
 
 // One pass in index order: a parent always has a lower index than its child.
 // Node 0 is the window. A node that breaks the parent rule is hidden, and so are its children.
-void flatten(const Node nodes[NODE_CAPACITY], Rectangle window, Placement placements[NODE_CAPACITY]) {
+void flatten(const otk_node nodes[NODE_CAPACITY], Rectangle window, Placement placements[NODE_CAPACITY]) {
     for (int index = 0; index < NODE_CAPACITY; index++) {
-        const Node *node = &nodes[index];
+        const otk_node *node = &nodes[index];
         Placement *placement = &placements[index];
         if (index == 0) {
             placement->area = window;
@@ -45,19 +45,19 @@ uint8_t node_at(const Placement placements[NODE_CAPACITY], int32_t column, int32
     return 0;
 }
 
-// Cells a cell node uses; 0 for other kinds and for grids that run past CELL_CAPACITY.
-uint32_t node_cell_count(const Node *node) {
+// Cells a cell node uses; 0 for other kinds and for grids that run past OTK_CELL_CAPACITY.
+uint32_t node_cell_count(const otk_node *node) {
     uint32_t count = (uint32_t)node->content_width * node->content_height;
-    if (node->kind != NODE_CELLS || node->storage_offset > CELL_CAPACITY || count > CELL_CAPACITY - node->storage_offset)
+    if (node->kind != OTK_NODE_CELLS || node->storage_offset > OTK_CELL_CAPACITY || count > OTK_CELL_CAPACITY - node->storage_offset)
         return 0;
     return count;
 }
 
-// Bytes a pixel node reads; 0 for other kinds, for an offset not a multiple of 4, and for images that run past PIXEL_CAPACITY.
-uint32_t node_pixel_size(const Node *node) {
+// Bytes a pixel node reads; 0 for other kinds, for an offset not a multiple of 4, and for images that run past OTK_PIXEL_CAPACITY.
+uint32_t node_pixel_size(const otk_node *node) {
     uint64_t size = (uint64_t)node->content_width * node->content_height * 4;
-    if (node->kind != NODE_PIXELS || node->storage_offset % 4 || node->storage_offset > PIXEL_CAPACITY
-        || size > PIXEL_CAPACITY - node->storage_offset)
+    if (node->kind != OTK_NODE_PIXELS || node->storage_offset % 4 || node->storage_offset > OTK_PIXEL_CAPACITY
+        || size > OTK_PIXEL_CAPACITY - node->storage_offset)
         return 0;
     return (uint32_t)size;
 }

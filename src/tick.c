@@ -24,12 +24,12 @@ void tick_publish(Library *library) {
     otk_screen *committed = library->committed;
     pthread_mutex_lock(&library->lock);
     if (screen->copy_sequence != committed->copy_sequence)
-        memcpy(committed->copy, screen->copy, screen->copy_length < COPY_CAPACITY ? screen->copy_length : COPY_CAPACITY);
+        memcpy(committed->copy, screen->copy, screen->copy_length < OTK_COPY_CAPACITY ? screen->copy_length : OTK_COPY_CAPACITY);
     bool changed = copy_if_changed(&committed->nodes, &screen->nodes, sizeof(otk_screen) - offsetof(otk_screen, nodes));
     for (int index = 0; index < NODE_CAPACITY; index++) {
-        const Node *node = &committed->nodes[index];
+        const otk_node *node = &committed->nodes[index];
         changed |= copy_if_changed(&committed->cells[node->storage_offset], &screen->cells[node->storage_offset],
-                                   node_cell_count(node) * sizeof(Cell));
+                                   node_cell_count(node) * sizeof(otk_cell));
     }
     if (changed)
         atomic_fetch_add(&library->commit_count, 1);
@@ -84,10 +84,10 @@ void tick_receive(Library *library) {
     pthread_mutex_lock(&library->lock);
     library->input_changed = input_waiting(library);
     uint32_t read = screen->text_write_index, written = incoming->text_write_index;
-    if (written - read > TEXT_CAPACITY)
-        read = written - TEXT_CAPACITY;
+    if (written - read > OTK_TEXT_CAPACITY)
+        read = written - OTK_TEXT_CAPACITY;
     for (; read != written; read++)
-        screen->text[read % TEXT_CAPACITY] = incoming->text[read % TEXT_CAPACITY];
+        screen->text[read % OTK_TEXT_CAPACITY] = incoming->text[read % OTK_TEXT_CAPACITY];
     if (incoming->paste_sequence != screen->paste_sequence)
         memcpy(screen->paste, incoming->paste, incoming->paste_length);
     memcpy(&screen->key_transitions, &incoming->key_transitions,

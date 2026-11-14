@@ -10,38 +10,38 @@ extern "C" {
 #endif
 
 enum {
-    TEXT_CAPACITY  = 4096,         // codepoints in the typed text ring
-    PASTE_CAPACITY = 67108864,     // 64 MB, a 4K screenshot as PNG
-    COPY_CAPACITY  = 67108864,
-    CELL_CAPACITY  = 16777216,
-    PIXEL_CAPACITY = 1073741824    // reserved address space; untouched pages cost nothing
+    OTK_TEXT_CAPACITY  = 4096,         // codepoints in the typed text ring
+    OTK_PASTE_CAPACITY = 67108864,     // 64 MB, a 4K screenshot as PNG
+    OTK_COPY_CAPACITY  = 67108864,
+    OTK_CELL_CAPACITY  = 16777216,
+    OTK_PIXEL_CAPACITY = 1073741824    // reserved address space; untouched pages cost nothing
 };
 
-typedef uint32_t Cell;  // clear:1 | underline:1 | bold:1 | background:4 | foreground:4 | codepoint:21
+typedef uint32_t otk_cell;  // clear:1 | underline:1 | bold:1 | background:4 | foreground:4 | codepoint:21
 
 enum {
-    CELL_CODEPOINT_SHIFT   = 0,
-    CELL_FOREGROUND_SHIFT  = 21,
-    CELL_BACKGROUND_SHIFT  = 25,
-    CELL_BOLD_SHIFT        = 29,
-    CELL_UNDERLINE_SHIFT   = 30,
-    CELL_CLEAR_SHIFT       = 31
+    OTK_CELL_CODEPOINT_SHIFT   = 0,
+    OTK_CELL_FOREGROUND_SHIFT  = 21,
+    OTK_CELL_BACKGROUND_SHIFT  = 25,
+    OTK_CELL_BOLD_SHIFT        = 29,
+    OTK_CELL_UNDERLINE_SHIFT   = 30,
+    OTK_CELL_CLEAR_SHIFT       = 31
 };
 
-enum { NODE_EMPTY, NODE_CELLS, NODE_PIXELS };
-enum { PASTE_CLIPBOARD, PASTE_DROP };
+enum { OTK_NODE_EMPTY, OTK_NODE_CELLS, OTK_NODE_PIXELS };
+enum { OTK_PASTE_CLIPBOARD, OTK_PASTE_DROP };
 enum {
-    DATA_TEXT = 1, DATA_URI_LIST = 2, DATA_HTML = 4, DATA_PNG = 8,
-    DATA_JPEG = 16, DATA_WEBP = 32, DATA_AVIF = 64
+    OTK_DATA_TEXT = 1, OTK_DATA_URI_LIST = 2, OTK_DATA_HTML = 4, OTK_DATA_PNG = 8,
+    OTK_DATA_JPEG = 16, OTK_DATA_WEBP = 32, OTK_DATA_AVIF = 64
 };
 
 // mouse_transitions index: evdev BTN_LEFT to BTN_TASK
 enum {
-    MOUSE_LEFT, MOUSE_RIGHT, MOUSE_MIDDLE, MOUSE_SIDE,
-    MOUSE_EXTRA, MOUSE_FORWARD, MOUSE_BACK, MOUSE_TASK
+    OTK_MOUSE_LEFT, OTK_MOUSE_RIGHT, OTK_MOUSE_MIDDLE, OTK_MOUSE_SIDE,
+    OTK_MOUSE_EXTRA, OTK_MOUSE_FORWARD, OTK_MOUSE_BACK, OTK_MOUSE_TASK
 };
 
-enum { MOUSE_OUTSIDE = 255 };  // mouse_node when the mouse is not over the window
+enum { OTK_MOUSE_OUTSIDE = 255 };  // mouse_node when the mouse is not over the window
 
 // Fields run largest to smallest. Each writer's fields stay together, so a tick copies one range each way.
 typedef struct {
@@ -53,17 +53,17 @@ typedef struct {
     uint8_t  kind;
     uint8_t  parent;                         // lower index than this node
     uint8_t  scroll_column, scroll_row;      // eighths, used modulo 8: smooth scroll only, never a whole cell
-} Node;
+} otk_node;
 
 typedef struct {
     // areas; pixels at offset 0 starts on a page
-    uint8_t  pixels[PIXEL_CAPACITY];
-    Cell     cells[CELL_CAPACITY];
-    uint8_t  paste[PASTE_CAPACITY];          // written by library
-    uint8_t  copy[COPY_CAPACITY];            // written by program
+    uint8_t  pixels[OTK_PIXEL_CAPACITY];
+    otk_cell cells[OTK_CELL_CAPACITY];
+    uint8_t  paste[OTK_PASTE_CAPACITY];      // written by library
+    uint8_t  copy[OTK_COPY_CAPACITY];        // written by program
 
     // written by library, copied in at each tick
-    uint32_t text[TEXT_CAPACITY];
+    uint32_t text[OTK_TEXT_CAPACITY];
     uint8_t  key_transitions[512];           // by scancode; odd means held
     uint32_t composition[32];                // input method preview
     uint32_t palette[16];                    // RGBA, base16 order
@@ -75,22 +75,22 @@ typedef struct {
     uint16_t columns, rows;
     int16_t  mouse_column, mouse_row;        // eighths of a cell
     int16_t  drop_column, drop_row;          // eighths, where the drop happened
-    uint8_t  mouse_node;                     // topmost node under the mouse, or MOUSE_OUTSIDE
+    uint8_t  mouse_node;                     // topmost node under the mouse, or OTK_MOUSE_OUTSIDE
     uint8_t  drop_node;
-    uint8_t  paste_offered;                  // DATA_ bits on the clipboard now
-    uint8_t  paste_source;                   // PASTE_CLIPBOARD or PASTE_DROP
-    uint8_t  paste_data;                     // one DATA_ bit
+    uint8_t  paste_offered;                  // OTK_DATA_ bits on the clipboard now
+    uint8_t  paste_source;                   // OTK_PASTE_CLIPBOARD or OTK_PASTE_DROP
+    uint8_t  paste_data;                     // one OTK_DATA_ bit
     uint8_t  closed;
 
     // written by program, copied out at each tick
-    Node     nodes[255];
+    otk_node nodes[255];
     uint32_t paste_request;                  // bump to ask for the clipboard
     uint32_t copy_sequence;                  // bump after writing copy
     uint32_t copy_length;
     uint16_t tick_rate;                      // ticks per second, default 240
     uint16_t idle_tick_rate;                 // ticks per second while idle; 0 sleeps until input
-    uint8_t  paste_request_data;             // one DATA_ bit from paste_offered
-    uint8_t  copy_data;                      // DATA_ bits the copy is offered as
+    uint8_t  paste_request_data;             // one OTK_DATA_ bit from paste_offered
+    uint8_t  copy_data;                      // OTK_DATA_ bits the copy is offered as
 } otk_screen;
 
 otk_screen *otk_open(const char *title);   // 0 if no window could open

@@ -8,26 +8,26 @@
 
 typedef struct {
     const char *mime_type;
-    uint8_t     data;  // DATA_ bit
+    uint8_t     data;  // OTK_DATA_ bit
 } DataType;
 
 // A drop takes the first row its offer has. A paste takes the first row with the requested bit.
 static const DataType data_types[] = {
-    {"text/uri-list",            DATA_URI_LIST},
-    {"image/png",                DATA_PNG},
-    {"image/jpeg",               DATA_JPEG},
-    {"image/webp",               DATA_WEBP},
-    {"image/avif",               DATA_AVIF},
-    {"text/plain;charset=utf-8", DATA_TEXT},
-    {"text/plain",               DATA_TEXT},
-    {"UTF8_STRING",              DATA_TEXT},
-    {"text/html",                DATA_HTML},
+    {"text/uri-list",            OTK_DATA_URI_LIST},
+    {"image/png",                OTK_DATA_PNG},
+    {"image/jpeg",               OTK_DATA_JPEG},
+    {"image/webp",               OTK_DATA_WEBP},
+    {"image/avif",               OTK_DATA_AVIF},
+    {"text/plain;charset=utf-8", OTK_DATA_TEXT},
+    {"text/plain",               OTK_DATA_TEXT},
+    {"UTF8_STRING",              OTK_DATA_TEXT},
+    {"text/html",                OTK_DATA_HTML},
 };
 
 enum { DATA_TYPE_COUNT = sizeof data_types / sizeof *data_types, DATA_ANY = UINT8_MAX };
 static_assert(DATA_TYPE_COUNT <= 16, "an offer's types are one uint16_t, a bit per row");
 
-// Folds an offer's rows into DATA_ bits.
+// Folds an offer's rows into OTK_DATA_ bits.
 static uint8_t data_bits(uint16_t types) {
     uint8_t bits = 0;
     for (int row = 0; row < DATA_TYPE_COUNT; row++)
@@ -36,7 +36,7 @@ static uint8_t data_bits(uint16_t types) {
     return bits;
 }
 
-// The first row the offer has with one of the wanted DATA_ bits, or -1.
+// The first row the offer has with one of the wanted OTK_DATA_ bits, or -1.
 static int data_type_find(uint16_t types, uint8_t wanted) {
     for (int row = 0; row < DATA_TYPE_COUNT; row++)
         if (types & 1u << row && data_types[row].data & wanted)
@@ -55,7 +55,7 @@ static void receive_end(Library *library, bool arrived) {
     incoming->paste_length = length;
     incoming->paste_data = receive->data;
     incoming->paste_source = receive->source;
-    if (receive->source == PASTE_DROP) {
+    if (receive->source == OTK_PASTE_DROP) {
         incoming->drop_column = receive->drop_column;
         incoming->drop_row = receive->drop_row;
         incoming->drop_node = receive->drop_node;
@@ -90,16 +90,16 @@ static void receive_start(Library *library, Receive request, struct wl_data_offe
     receive->pipe = pipe_ends[0];
 }
 
-// received holds one byte past PASTE_CAPACITY, so a paste too large to keep shows up.
+// received holds one byte past OTK_PASTE_CAPACITY, so a paste too large to keep shows up.
 static void receive_read(Library *library) {
     Clipboard *clipboard = &library->clipboard;
     Receive *receive = &clipboard->receive;
     ssize_t count = -1;
-    while (receive->length <= PASTE_CAPACITY
+    while (receive->length <= OTK_PASTE_CAPACITY
            && (count = read(receive->pipe, clipboard->received + receive->length,
-                            PASTE_CAPACITY + 1 - receive->length)) > 0)
+                            OTK_PASTE_CAPACITY + 1 - receive->length)) > 0)
         receive->length += count;
-    if (receive->length > PASTE_CAPACITY)
+    if (receive->length > OTK_PASTE_CAPACITY)
         receive_end(library, false);
     else if (count == 0)
         receive_end(library, true);
@@ -110,7 +110,7 @@ static void receive_read(Library *library) {
 static void paste_start(Library *library) {
     Clipboard *clipboard = &library->clipboard;
     uint8_t wanted = library->committed->paste_request_data;
-    Receive request = {.data = wanted, .source = PASTE_CLIPBOARD};
+    Receive request = {.data = wanted, .source = OTK_PASTE_CLIPBOARD};
     receive_start(library, request, clipboard->selection, data_type_find(clipboard->selection_types, wanted));
 }
 
@@ -184,7 +184,7 @@ static void copy_offer(Library *library) {
     if (clipboard->source)
         wl_data_source_destroy(clipboard->source);
     clipboard->source = source;
-    clipboard->copy_length = committed->copy_length < COPY_CAPACITY ? committed->copy_length : COPY_CAPACITY;
+    clipboard->copy_length = committed->copy_length < OTK_COPY_CAPACITY ? committed->copy_length : OTK_COPY_CAPACITY;
 }
 
 static void offer_type(void *data, struct wl_data_offer *, const char *mime_type) {
@@ -266,7 +266,7 @@ static void device_drop(void *data, struct wl_data_device *) {
         return;
     int row = data_type_find(clipboard->drag_types, DATA_ANY);
     Receive request = {
-        .source = PASTE_DROP,
+        .source = OTK_PASTE_DROP,
         .data = row < 0 ? 0 : data_types[row].data,
         .dropped = clipboard->drag,
         .drop_column = clipboard->drag_column,
@@ -290,7 +290,7 @@ void clipboard_attach(Library *library) {
     Clipboard *clipboard = &library->clipboard;
     if (!library->globals.data_device_manager)
         return;
-    void *received = mmap(nullptr, PASTE_CAPACITY + 1, PROT_READ | PROT_WRITE,
+    void *received = mmap(nullptr, OTK_PASTE_CAPACITY + 1, PROT_READ | PROT_WRITE,
                           MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
     if (received == MAP_FAILED)
         return;
@@ -314,7 +314,7 @@ void clipboard_detach(Library *library) {
     if (clipboard->source)
         wl_data_source_destroy(clipboard->source);
     wl_data_device_release(clipboard->data_device);
-    munmap(clipboard->received, PASTE_CAPACITY + 1);
+    munmap(clipboard->received, OTK_PASTE_CAPACITY + 1);
     *clipboard = (Clipboard){};
 }
 

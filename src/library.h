@@ -86,8 +86,8 @@ typedef struct {
     uint32_t length;                           // bytes read so far
     int16_t  drop_column, drop_row;            // eighths, where the drop happened
     uint8_t  drop_node;
-    uint8_t  data;                             // DATA_ bit
-    uint8_t  source;                           // PASTE_CLIPBOARD or PASTE_DROP
+    uint8_t  data;                             // OTK_DATA_ bit
+    uint8_t  source;                           // OTK_PASTE_CLIPBOARD or OTK_PASTE_DROP
     bool     active;
 } Receive;  // the paste or drop being read
 
@@ -309,10 +309,10 @@ void font_close(Font *font);
 void font_draw(const Font *font, uint32_t codepoint, bool bold, uint8_t *coverage);
 
 // flatten.c
-void     flatten(const Node nodes[NODE_CAPACITY], Rectangle window, Placement placements[NODE_CAPACITY]);
+void     flatten(const otk_node nodes[NODE_CAPACITY], Rectangle window, Placement placements[NODE_CAPACITY]);
 uint8_t  node_at(const Placement placements[NODE_CAPACITY], int32_t column, int32_t row);
-uint32_t node_cell_count(const Node *node);
-uint32_t node_pixel_size(const Node *node);
+uint32_t node_cell_count(const otk_node *node);
+uint32_t node_pixel_size(const otk_node *node);
 
 // graphics.c
 bool graphics_open(Library *library);

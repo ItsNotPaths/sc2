@@ -88,7 +88,7 @@ changes. An image ignores its node's scroll. `examples/image.c` shows it.
 `clipboard-offers`, `clipboard-paste`, `clipboard-copy`, `clipboard-drop`.
 Done: `paste_offered` follows the clipboard. Every paste request and every drop gets one
 answer through `paste_sequence`: the bytes, or `paste_length` 0 when the type is not offered,
-the read fails, the bytes run past `PASTE_CAPACITY`, or a newer request replaces it. Bytes are
+the read fails, the bytes run past `OTK_PASTE_CAPACITY`, or a newer request replaces it. Bytes are
 read into the library's own buffer and reach `incoming` only once complete. Copy serves reads
 from `committed->copy`; a newer copy cuts off reads still running. All pipes are non-blocking
 on the library thread's poll, and that thread blocks signals, so a closed pipe gives `EPIPE`.
@@ -126,8 +126,8 @@ child: the title, an app_id, a size request, see-through areas. Today the title 
   could then change at run time (a file browser showing its path).
 - A socket next to the memfd. Needed only if something must pass file descriptors.
 
-Also open: `Node`, `Cell` and the enum constants (`NODE_EMPTY`, `DATA_TEXT`, ...) have no
-`otk` prefix, so they can clash in a program the way `Screen` did with Xlib.
+Every public name has the `otk` prefix (2026-11-14): `otk_screen`, `otk_node`, `otk_cell`, and
+`OTK_` on every constant, so none can clash in a program the way `Screen` did with Xlib.
 
 ## Workstream C: core
 

@@ -6,8 +6,8 @@
 #include "library.h"
 
 static_assert(offsetof(otk_screen, pixels) == 0, "graphics import needs pixels on a page");
-static_assert(sizeof(Node) == 24, "bindings read the Node layout from otk.h");
-static_assert(offsetof(otk_screen, text) + sizeof(uint32_t[TEXT_CAPACITY]) == offsetof(otk_screen, key_transitions),
+static_assert(sizeof(otk_node) == 24, "bindings read the otk_node layout from otk.h");
+static_assert(offsetof(otk_screen, text) + sizeof(uint32_t[OTK_TEXT_CAPACITY]) == offsetof(otk_screen, key_transitions),
               "tick_receive copies the ring, then every field from key_transitions to nodes");
 
 static Library library;  // one window per process
@@ -53,7 +53,7 @@ otk_screen *otk_open(const char *title) {
         && draw_open(&library);
     if (opened) {
         library.screen->tick_rate = 240;
-        library.incoming->mouse_node = MOUSE_OUTSIDE;
+        library.incoming->mouse_node = OTK_MOUSE_OUTSIDE;
         memcpy(library.incoming->palette, library.settings.palette, sizeof library.settings.palette);
         opened = library_start(&library);
     }

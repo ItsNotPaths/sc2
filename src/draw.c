@@ -59,7 +59,7 @@ static bool pixels_reserve(Library *library, uint32_t end) {
 }
 
 // Copies a node's image to the GPU when it changed. Only where import failed.
-static void image_copy(Library *library, int index, const Node *node, uint32_t size) {
+static void image_copy(Library *library, int index, const otk_node *node, uint32_t size) {
     CopiedImage *copied = &library->drawing.copied_images[index];
     CopiedImage current = {node->storage_offset, size, node->sequence};
     if (library->graphics.host_import || memcmp(copied, &current, sizeof current) == 0)
@@ -84,7 +84,7 @@ static bool frame_build(Library *library) {
     uint64_t cell_count = 0;
     uint32_t pixel_end = 0;
     for (int index = 0; index < NODE_CAPACITY; index++) {
-        const Node *node = &committed->nodes[index];
+        const otk_node *node = &committed->nodes[index];
         if (!visible(placements[index].clip))
             continue;
         node_count = index + 1;
@@ -93,7 +93,7 @@ static bool frame_build(Library *library) {
         if (pixel_size && node->storage_offset + pixel_size > pixel_end)
             pixel_end = node->storage_offset + pixel_size;
     }
-    if (!buffer_reserve(&library->graphics, &drawing->cells, cell_count * sizeof(Cell)))
+    if (!buffer_reserve(&library->graphics, &drawing->cells, cell_count * sizeof(otk_cell)))
         return failed("cannot grow the cell buffer");
     if (!pixels_reserve(library, pixel_end))
         return failed("cannot grow the pixel buffer");
@@ -115,10 +115,10 @@ static bool frame_build(Library *library) {
     frame->node_count = node_count;
     frame->frame_number = ++drawing->frame_number;
 
-    Cell *packed_cells = drawing->cells.mapped;
+    otk_cell *packed_cells = drawing->cells.mapped;
     uint32_t packed = 0;
     for (uint32_t index = 0; index < node_count; index++) {
-        const Node *node = &committed->nodes[index];
+        const otk_node *node = &committed->nodes[index];
         const Placement *placement = &placements[index];
         Rectangle clip = placement->clip;
         uint32_t count = visible(clip) ? node_cell_count(node) : 0;
@@ -133,14 +133,14 @@ static bool frame_build(Library *library) {
             .clip_bottom = to_pixels(clip.bottom, font->cell_height),
             .content_left = to_pixels(content_left, font->cell_width),
             .content_top = to_pixels(content_top, font->cell_height),
-            .kind = count ? NODE_CELLS : pixel_size ? NODE_PIXELS : NODE_EMPTY,
+            .kind = count ? OTK_NODE_CELLS : pixel_size ? OTK_NODE_PIXELS : OTK_NODE_EMPTY,
             .storage_offset = pixel_size ? node->storage_offset : packed,
             .content_width = node->content_width,
             .content_height = node->content_height,
             .area_width = to_pixels(area.right, font->cell_width) - to_pixels(area.left, font->cell_width),
             .area_height = to_pixels(area.bottom, font->cell_height) - to_pixels(area.top, font->cell_height),
         };
-        memcpy(&packed_cells[packed], &committed->cells[node->storage_offset], count * sizeof(Cell));
+        memcpy(&packed_cells[packed], &committed->cells[node->storage_offset], count * sizeof(otk_cell));
         packed += count;
         if (pixel_size)
             image_copy(library, index, node, pixel_size);

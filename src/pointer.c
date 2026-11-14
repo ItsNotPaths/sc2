@@ -7,7 +7,7 @@ void pointer_hit(Library *library) {
     otk_screen *incoming = library->incoming;
     incoming->mouse_node = library->pointer.inside
         ? node_at(library->placements, incoming->mouse_column, incoming->mouse_row)
-        : MOUSE_OUTSIDE;
+        : OTK_MOUSE_OUTSIDE;
 }
 
 static void pointer_move(Library *library, wl_fixed_t x, wl_fixed_t y) {
