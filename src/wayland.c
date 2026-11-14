@@ -83,6 +83,7 @@ bool wayland_connect(Library *library) {
 void wayland_disconnect(Library *library) {
     keyboard_detach(library);
     pointer_detach(library);
+    clipboard_detach(library);
     if (library->display)
         wl_display_disconnect(library->display);
 }

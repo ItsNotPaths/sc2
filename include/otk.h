@@ -70,7 +70,7 @@ typedef struct {
     uint8_t  mouse_transitions[8];
     uint32_t text_write_index;
     uint32_t paste_sequence;                 // bumped when a paste or drop is complete
-    uint32_t paste_length;
+    uint32_t paste_length;                   // 0 when the paste or drop failed
     int32_t  wheel_total;                    // eighths of a row
     uint16_t columns, rows;
     int16_t  mouse_column, mouse_row;        // eighths of a cell

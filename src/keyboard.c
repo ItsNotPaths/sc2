@@ -40,8 +40,10 @@ static void keyboard_keymap(void *data, struct wl_keyboard *, uint32_t format, i
     keyboard->state = xkb_state_new(keymap);
 }
 
-// Keys held on enter are ignored: they were pressed for another window.
-static void keyboard_enter(void *, struct wl_keyboard *, uint32_t, struct wl_surface *, struct wl_array *) {}
+// Keys held on enter are ignored: they were pressed for another window. Its serial lets a copy happen before any key.
+static void keyboard_enter(void *data, struct wl_keyboard *, uint32_t serial, struct wl_surface *, struct wl_array *) {
+    ((Library *)data)->input_serial = serial;
+}
 
 // Releases every held key, since their releases go to the window that has focus now.
 static void keyboard_leave(void *data, struct wl_keyboard *, uint32_t, struct wl_surface *) {

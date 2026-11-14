@@ -1,4 +1,4 @@
-#include <poll.h>
+#include <signal.h>
 #include <stdio.h>
 #include <sys/eventfd.h>
 #include <sys/timerfd.h>
@@ -24,12 +24,12 @@ static void *library_run(void *argument) {
         pthread_mutex_unlock(&library->lock);
         wl_display_flush(display);
 
-        struct pollfd waiting[] = {
+        struct pollfd waiting[3 + CLIPBOARD_PIPE_CAPACITY] = {
             {.fd = wl_display_get_fd(display), .events = POLLIN},
             {.fd = library->wake_event, .events = POLLIN},
             {.fd = library->repeat_timer, .events = POLLIN},
         };
-        poll(waiting, 3, -1);
+        poll(waiting, 3 + clipboard_poll(library, &waiting[3]), -1);
         bool display_lost = false;
         if (waiting[0].revents)
             display_lost = wl_display_read_events(display) < 0;
@@ -43,6 +43,7 @@ static void *library_run(void *argument) {
             clipboard_serve(library);
         if (waiting[2].revents && read(library->repeat_timer, &count, sizeof count) > 0)
             keyboard_repeat(library);
+        clipboard_transfer(library);
         bool closed = library->incoming->closed;
         pthread_cond_signal(&library->input_arrived);
         pthread_mutex_unlock(&library->lock);
@@ -59,7 +60,13 @@ bool library_start(Library *library) {
         return failed("cannot make the wake event or the repeat timer");
     pthread_mutex_init(&library->lock, nullptr);
     pthread_cond_init(&library->input_arrived, nullptr);
-    if (pthread_create(&library->thread, nullptr, library_run, library) != 0)
+    // Signals go to the program's threads. A write to a closed clipboard pipe then fails with EPIPE.
+    sigset_t every_signal, program_signals;
+    sigfillset(&every_signal);
+    pthread_sigmask(SIG_SETMASK, &every_signal, &program_signals);
+    int started = pthread_create(&library->thread, nullptr, library_run, library);
+    pthread_sigmask(SIG_SETMASK, &program_signals, nullptr);
+    if (started != 0)
         return failed("cannot start the library thread");
     atomic_store(&library->running, true);
     return true;

@@ -13,11 +13,10 @@ void pointer_hit(Library *library) {
         : MOUSE_OUTSIDE;
 }
 
-// wl_fixed is 24.8 fixed point, in pixels.
 static void pointer_move(Library *library, wl_fixed_t x, wl_fixed_t y) {
     otk_screen *incoming = library->incoming;
-    incoming->mouse_column = floor_divide((int64_t)x * 8, (int64_t)library->font.cell_width * 256);
-    incoming->mouse_row = floor_divide((int64_t)y * 8, (int64_t)library->font.cell_height * 256);
+    incoming->mouse_column = fixed_to_eighths(x, library->font.cell_width);
+    incoming->mouse_row = fixed_to_eighths(y, library->font.cell_height);
     pointer_hit(library);
 }
 

@@ -1,6 +1,7 @@
 // Library side: process-local state that must stay out of otk_screen.
 #pragma once
 
+#include <poll.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdint.h>
@@ -74,13 +75,39 @@ typedef struct {
     struct zwp_text_input_v3 *text_input;
 } TextInput;
 
+enum { SEND_CAPACITY = 4, CLIPBOARD_PIPE_CAPACITY = 1 + SEND_CAPACITY };
+
+typedef struct {
+    struct wl_data_offer *dropped;             // a drop's offer, finished once its bytes arrive
+    int      pipe;
+    uint32_t length;                           // bytes read so far
+    int16_t  drop_column, drop_row;            // eighths, where the drop happened
+    uint8_t  drop_node;
+    uint8_t  data;                             // DATA_ bit
+    uint8_t  source;                           // PASTE_CLIPBOARD or PASTE_DROP
+    bool     active;
+} Receive;  // the paste or drop being read
+
+typedef struct {
+    int      pipe;
+    uint32_t length;                           // bytes written so far
+} Send;  // another client reading our copy
+
 typedef struct {
     struct wl_data_device *data_device;
     struct wl_data_offer  *selection;          // the clipboard now
-    struct wl_data_offer  *drop;               // dragged over the window now
+    struct wl_data_offer  *drag;               // dragged over the window now
     struct wl_data_source *source;             // set while the copy owns the clipboard
+    uint8_t *received;                         // bytes read so far; incoming gets them once complete
+    Receive  receive;
+    Send     sends[SEND_CAPACITY];
+    uint32_t send_count;
     uint32_t paste_request;                    // last request served
     uint32_t copy_sequence;                    // last copy offered
+    uint32_t copy_length;                      // of the last copy offered; committed->copy holds its bytes
+    uint16_t newest_types;                     // a bit per data_types row, of the offer just announced
+    uint16_t selection_types, drag_types;
+    int16_t  drag_column, drag_row;            // eighths
 } Clipboard;
 
 typedef struct {
@@ -199,6 +226,11 @@ static inline int64_t floor_divide(int64_t dividend, int64_t divisor) {
     return quotient - (dividend % divisor != 0 && (dividend < 0) != (divisor < 0));
 }
 
+// wl_fixed is 24.8 fixed point, in pixels.
+static inline int16_t fixed_to_eighths(wl_fixed_t position, uint32_t cell_size) {
+    return floor_divide((int64_t)position * 8, (int64_t)cell_size * 256);
+}
+
 // For key_transitions and mouse_transitions: moves only when the held state changes. Odd means held.
 static inline void transition_set(uint8_t *transitions, bool held) {
     if ((*transitions % 2 == 1) != held)
@@ -243,8 +275,11 @@ void pointer_hit(Library *library);
 void text_input_attach(Library *library);
 
 // clipboard.c
-void clipboard_attach(Library *library);
-void clipboard_serve(Library *library);
+void   clipboard_attach(Library *library);
+void   clipboard_detach(Library *library);
+void   clipboard_serve(Library *library);
+size_t clipboard_poll(const Library *library, struct pollfd *waiting);
+void   clipboard_transfer(Library *library);
 
 // settings.c
 void settings_load(Settings *settings);
