@@ -8,6 +8,7 @@
 layout(local_size_x = 8, local_size_y = 8) in;
 
 const uint NODE_CELLS     = 1u;  // otk.h
+const uint NODE_PIXELS    = 2u;
 const uint CODEPOINT_MASK = 0x1fffffu;
 const uint BOLD_BIT       = 1u << 29;
 const uint UNDERLINE_BIT  = 1u << 30;
@@ -19,6 +20,7 @@ layout(buffer_reference, std430) readonly buffer Cells { uint cells[]; };
 layout(buffer_reference, std430) readonly buffer Coverage { uint words[]; };     // a byte per pixel, 4 per word
 layout(buffer_reference, std430) readonly buffer GlyphTable { uint entries[]; }; // key, slot pairs
 layout(buffer_reference, std430) buffer MissTable { uint keys[]; };
+layout(buffer_reference, std430) readonly buffer Pixels { uint words[]; };      // RGBA bytes, straight alpha
 layout(buffer_reference, std430) buffer SlotFrames { uint frames[]; };  // the last frame that drew each slot
 
 struct Node {
@@ -27,6 +29,7 @@ struct Node {
     uint kind;
     uint storage_offset;
     uint content_width, content_height;
+    uint area_width, area_height;
 };
 
 layout(buffer_reference, std430) readonly buffer Frame {
@@ -35,6 +38,7 @@ layout(buffer_reference, std430) readonly buffer Frame {
     GlyphTable glyph_table;
     MissTable  miss_table;
     SlotFrames slot_frames;
+    Pixels     pixels;
     uint palette[16];
     uint cell_width, cell_height;
     uint underline_top, underline_thickness;
@@ -123,6 +127,25 @@ vec4 cell_layer(Node node, ivec2 pixel) {
     return vec4(mix(palette_color((cell >> 25) & 15u), foreground, coverage), 1.0);
 }
 
+// Premultiplied, so filtering never pulls color out of transparent pixels.
+vec4 texel(Node node, uvec2 position) {
+    vec4 color = unpackUnorm4x8(frame.pixels.words[node.storage_offset / 4u + position.y * node.content_width + position.x]);
+    return vec4(color.rgb * color.a, color.a);
+}
+
+// The image stretched over the node's area, filtered bilinearly.
+vec4 pixel_layer(Node node, ivec2 pixel) {
+    vec2 image_size = vec2(node.content_width, node.content_height);
+    vec2 offset = vec2(pixel - ivec2(node.content_left, node.content_top)) + 0.5;
+    vec2 position = clamp(offset * image_size / vec2(node.area_width, node.area_height) - 0.5, vec2(0.0), image_size - 1.0);
+    uvec2 low = uvec2(position);
+    uvec2 high = min(low + 1u, uvec2(image_size) - 1u);
+    vec2 weight = position - vec2(low);
+    vec4 top = mix(texel(node, low), texel(node, uvec2(high.x, low.y)), weight.x);
+    vec4 bottom = mix(texel(node, uvec2(low.x, high.y)), texel(node, high), weight.x);
+    return mix(top, bottom, weight.y);
+}
+
 void main() {
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
     if (any(greaterThanEqual(pixel, imageSize(target))))
@@ -131,11 +154,10 @@ void main() {
     float shown = 1.0;       // how much of the layers below still shows
     for (int index = int(frame.node_count) - 1; index >= 0 && shown > 0.0; index--) {
         Node node = frame.nodes[index];
-        if (node.kind != NODE_CELLS || pixel.x < node.clip_left || pixel.x >= node.clip_right
+        if ((node.kind != NODE_CELLS && node.kind != NODE_PIXELS) || pixel.x < node.clip_left || pixel.x >= node.clip_right
             || pixel.y < node.clip_top || pixel.y >= node.clip_bottom)
             continue;
-        // (hole image-import) pixel nodes are skipped; no scaled read of the image.
-        vec4 layer = cell_layer(node, pixel);
+        vec4 layer = node.kind == NODE_CELLS ? cell_layer(node, pixel) : pixel_layer(node, pixel);
         color += shown * layer.rgb;
         shown *= 1.0 - layer.a;
     }

@@ -52,3 +52,12 @@ uint32_t node_cell_count(const Node *node) {
         return 0;
     return count;
 }
+
+// Bytes a pixel node reads; 0 for other kinds, for an offset not a multiple of 4, and for images that run past PIXEL_CAPACITY.
+uint32_t node_pixel_size(const Node *node) {
+    uint64_t size = (uint64_t)node->content_width * node->content_height * 4;
+    if (node->kind != NODE_PIXELS || node->storage_offset % 4 || node->storage_offset > PIXEL_CAPACITY
+        || size > PIXEL_CAPACITY - node->storage_offset)
+        return 0;
+    return (uint32_t)size;
+}

@@ -54,8 +54,36 @@ static bool device_choose(Graphics *graphics) {
     return false;
 }
 
+static bool extension_supported(VkPhysicalDevice device, const char *name) {
+    VkExtensionProperties extensions[512];
+    uint32_t extension_count = 512;
+    vkEnumerateDeviceExtensionProperties(device, nullptr, &extension_count, extensions);
+    for (uint32_t index = 0; index < extension_count; index++)
+        if (strcmp(extensions[index].extensionName, name) == 0)
+            return true;
+    return false;
+}
+
+// Turns on pixel import where the device has VK_EXT_external_memory_host.
+static void host_import_prepare(Graphics *graphics) {
+    if (!graphics->host_import)
+        return;
+    graphics->memory_host_pointer_properties = (PFN_vkGetMemoryHostPointerPropertiesEXT)
+        vkGetDeviceProcAddr(graphics->device, "vkGetMemoryHostPointerPropertiesEXT");
+    VkPhysicalDeviceExternalMemoryHostPropertiesEXT host_properties = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_MEMORY_HOST_PROPERTIES_EXT,
+    };
+    vkGetPhysicalDeviceProperties2(graphics->physical_device, &(VkPhysicalDeviceProperties2){
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+        .pNext = &host_properties,
+    });
+    graphics->import_alignment = host_properties.minImportedHostPointerAlignment;
+    graphics->host_import = graphics->memory_host_pointer_properties != nullptr;
+}
+
 static bool device_create(Graphics *graphics) {
-    const char *extensions[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+    graphics->host_import = extension_supported(graphics->physical_device, VK_EXT_EXTERNAL_MEMORY_HOST_EXTENSION_NAME);
+    const char *extensions[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_EXT_EXTERNAL_MEMORY_HOST_EXTENSION_NAME};
     VkPhysicalDeviceVulkan12Features vulkan12_features = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
         .bufferDeviceAddress = VK_TRUE,
@@ -76,11 +104,12 @@ static bool device_create(Graphics *graphics) {
                 .queueCount = 1,
                 .pQueuePriorities = &priority,
             },
-            .enabledExtensionCount = 1,
+            .enabledExtensionCount = graphics->host_import ? 2 : 1,
             .ppEnabledExtensionNames = extensions,
         }, nullptr, &graphics->device) != VK_SUCCESS)
         return false;
     vkGetDeviceQueue(graphics->device, graphics->queue_family, 0, &graphics->queue);
+    host_import_prepare(graphics);
     return true;
 }
 
@@ -395,11 +424,6 @@ bool graphics_present(Graphics *graphics, VkDeviceAddress frame) {
     return result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR;
 }
 
-// (hole image-import :tags draw :sev gap) pixels are never imported with VK_EXT_external_memory_host, and there is no copy fallback; pixel nodes draw nothing.
-void graphics_import_pixels(Library *library) {
-    (void)library;
-}
-
 // Host visible and coherent memory; device local too where the GPU has both.
 static bool memory_type_choose(Graphics *graphics, uint32_t allowed_types, uint32_t *type) {
     VkPhysicalDeviceMemoryProperties properties;
@@ -418,39 +442,70 @@ static bool memory_type_choose(Graphics *graphics, uint32_t allowed_types, uint3
     return false;
 }
 
-// Zeroed, mapped, and reachable from shaders by address.
-bool buffer_create(Graphics *graphics, VkDeviceSize size, Buffer *buffer) {
+// Reachable from shaders by address. host_memory is imported in place; nullptr allocates new memory.
+static bool buffer_allocate(Graphics *graphics, VkDeviceSize size, void *host_memory, Buffer *buffer) {
     VkDevice device = graphics->device;
-    *buffer = (Buffer){.size = size};
+    *buffer = (Buffer){.size = size, .mapped = host_memory};
     if (vkCreateBuffer(device, &(VkBufferCreateInfo){
             .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .pNext = host_memory ? &(VkExternalMemoryBufferCreateInfo){
+                .sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO,
+                .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT,
+            } : nullptr,
             .size = size,
             .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
             .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
         }, nullptr, &buffer->buffer) != VK_SUCCESS)
         return false;
+
     VkMemoryRequirements requirements;
     vkGetBufferMemoryRequirements(device, buffer->buffer, &requirements);
+    VkMemoryAllocateFlagsInfo flags = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO,
+        .flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT,
+    };
+    VkImportMemoryHostPointerInfoEXT import = {
+        .sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_HOST_POINTER_INFO_EXT,
+        .pNext = &flags,
+        .handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT,
+        .pHostPointer = host_memory,
+    };
+    VkMemoryHostPointerPropertiesEXT host_properties = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_HOST_POINTER_PROPERTIES_EXT,
+        .memoryTypeBits = ~0u,
+    };
+    if (host_memory && graphics->memory_host_pointer_properties(device,
+            VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT, host_memory, &host_properties) != VK_SUCCESS)
+        return false;
     uint32_t type;
-    if (!memory_type_choose(graphics, requirements.memoryTypeBits, &type)
+    if (!memory_type_choose(graphics, requirements.memoryTypeBits & host_properties.memoryTypeBits, &type)
         || vkAllocateMemory(device, &(VkMemoryAllocateInfo){
             .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-            .pNext = &(VkMemoryAllocateFlagsInfo){
-                .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO,
-                .flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT,
-            },
-            .allocationSize = requirements.size,
+            .pNext = host_memory ? (void *)&import : &flags,
+            .allocationSize = host_memory ? size : requirements.size,
             .memoryTypeIndex = type,
         }, nullptr, &buffer->memory) != VK_SUCCESS
-        || vkBindBufferMemory(device, buffer->buffer, buffer->memory, 0) != VK_SUCCESS
-        || vkMapMemory(device, buffer->memory, 0, VK_WHOLE_SIZE, 0, &buffer->mapped) != VK_SUCCESS)
+        || vkBindBufferMemory(device, buffer->buffer, buffer->memory, 0) != VK_SUCCESS)
         return false;
     buffer->address = vkGetBufferDeviceAddress(device, &(VkBufferDeviceAddressInfo){
         .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
         .buffer = buffer->buffer,
     });
+    return true;
+}
+
+// Zeroed and mapped.
+bool buffer_create(Graphics *graphics, VkDeviceSize size, Buffer *buffer) {
+    if (!buffer_allocate(graphics, size, nullptr, buffer)
+        || vkMapMemory(graphics->device, buffer->memory, 0, VK_WHOLE_SIZE, 0, &buffer->mapped) != VK_SUCCESS)
+        return false;
     memset(buffer->mapped, 0, size);
     return true;
+}
+
+// The GPU reads host_memory in place. Both it and size must be multiples of import_alignment.
+bool buffer_import(Graphics *graphics, void *host_memory, VkDeviceSize size, Buffer *buffer) {
+    return buffer_allocate(graphics, size, host_memory, buffer);
 }
 
 // Grows the buffer to at least size bytes, losing its contents. The GPU must be done with it.

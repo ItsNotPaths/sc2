@@ -45,7 +45,7 @@ enum { MOUSE_OUTSIDE = 255 };  // mouse_node when the mouse is not over the wind
 
 // Fields run largest to smallest. Each writer's fields stay together, so a tick copies one range each way.
 typedef struct {
-    uint32_t storage_offset;                 // into cells or pixels
+    uint32_t storage_offset;                 // into cells, or pixels at a multiple of 4
     uint32_t sequence;                       // bumped after each image frame
     int16_t  column, row;                    // in parent's content
     uint16_t columns, rows;                  // visible area; clips children

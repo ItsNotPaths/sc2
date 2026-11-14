@@ -122,6 +122,9 @@ typedef struct {
     VkCommandBuffer       commands;
     VkSemaphore           acquired;
     VkFence               frame_done;          // one frame in flight
+    bool                  host_import;         // pixels import in place; false copies images instead
+    VkDeviceSize          import_alignment;
+    PFN_vkGetMemoryHostPointerPropertiesEXT memory_host_pointer_properties;
 } Graphics;
 
 typedef struct {
@@ -134,8 +137,14 @@ typedef struct {
 } Atlas;
 
 typedef struct {
+    uint32_t storage_offset, size, sequence;
+} CopiedImage;  // what a node's image was when last copied to the GPU
+
+typedef struct {
     Buffer   frame;                            // DrawFrame, see draw.c
     Buffer   cells;                            // committed cells, packed per node
+    Buffer   pixels;                           // pixels from 0 to the last byte drawn: imported, or a copy
+    CopiedImage copied_images[NODE_CAPACITY];  // copy only; all zero after the copy grows
     uint32_t drawn_commit;
     uint32_t frame_number;                     // of the last frame built
 } Drawing;
@@ -249,6 +258,7 @@ void font_draw(const Font *font, uint32_t codepoint, bool bold, uint8_t *coverag
 void     flatten(const Node nodes[NODE_CAPACITY], Rectangle window, Placement placements[NODE_CAPACITY]);
 uint8_t  node_at(const Placement placements[NODE_CAPACITY], int32_t column, int32_t row);
 uint32_t node_cell_count(const Node *node);
+uint32_t node_pixel_size(const Node *node);
 
 // graphics.c
 bool graphics_open(Library *library);
@@ -256,8 +266,8 @@ void graphics_close(Graphics *graphics);
 bool graphics_resize(Graphics *graphics, uint32_t width, uint32_t height);
 void graphics_wait(Graphics *graphics);
 bool graphics_present(Graphics *graphics, VkDeviceAddress frame);
-void graphics_import_pixels(Library *library);
 bool buffer_create(Graphics *graphics, VkDeviceSize size, Buffer *buffer);
+bool buffer_import(Graphics *graphics, void *host_memory, VkDeviceSize size, Buffer *buffer);
 bool buffer_reserve(Graphics *graphics, Buffer *buffer, VkDeviceSize size);
 void buffer_destroy(Graphics *graphics, Buffer *buffer);
 
