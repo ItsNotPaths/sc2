@@ -1,0 +1,76 @@
+name: Release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release tag (e.g. v1.0.0)'
+        required: true
+        type: string
+      notes:
+        description: 'Release notes'
+        required: false
+        type: string
+        default: ''
+      prerelease:
+        description: 'Mark as pre-release'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # vendor/ is the output of download-deps.sh, so its key follows that script.
+      - name: Cache vendor/
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: vendor-${{ hashFiles('download-deps.sh') }}
+
+      # clang-19 for #embed; plain clang for the header checks in tests/run.sh.
+      - name: Install build deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+              clang clang-19 glslc pkg-config \
+              libwayland-dev libwayland-bin libxkbcommon-dev libvulkan-dev
+
+      - name: Download deps
+        run: ./download-deps.sh
+
+      # No Wayland session here, so tests/run.sh skips the sc2host tests.
+      - name: Build and test
+        env:
+          CC: clang-19
+        run: |
+          ./build.sh release
+          tests/run.sh
+
+      # Links this runner's glibc, so it needs a system at least as new.
+      - name: Package
+        run: |
+          name="sc2-${{ inputs.version }}-linux-x86_64"
+          mkdir "$name"
+          cp build/sc2host build/libsc2.a build/libsc2.so include/sc2.h include/contract.md README.md "$name"/
+          tar czf "$name.tar.gz" "$name"
+          echo "ARCHIVE=$name.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          prerelease_flag=""
+          if [ "${{ inputs.prerelease }}" = "true" ]; then
+            prerelease_flag="--prerelease"
+          fi
+          gh release create "${{ inputs.version }}" "$ARCHIVE" \
+              --target "${{ github.sha }}" \
+              --title "${{ inputs.version }}" \
+              --notes "${{ inputs.notes }}" \
+              $prerelease_flag
