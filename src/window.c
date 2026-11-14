@@ -1,7 +1,5 @@
 #include "library.h"
 
-enum { DEFAULT_COLUMNS = 80, DEFAULT_ROWS = 24 };
-
 static void window_manager_ping(void *, struct xdg_wm_base *window_manager, uint32_t serial) {
     xdg_wm_base_pong(window_manager, serial);
 }
@@ -16,12 +14,11 @@ static void shell_surface_configure(void *data, struct xdg_surface *shell_surfac
     Window *window = &library->window;
     xdg_surface_ack_configure(shell_surface, serial);
     if (window->requested_width && window->requested_height) {
-        window->width = window->requested_width;
-        window->height = window->requested_height;
+        window->surface_width = window->requested_width;
+        window->surface_height = window->requested_height;
     }
     window->configured = true;
-    library->incoming->columns = window->width / library->font.cell_width;
-    library->incoming->rows = window->height / library->font.cell_height;
+    window_resize(library);
 }
 
 static const struct xdg_surface_listener shell_surface_listener = {
@@ -63,8 +60,8 @@ static const struct wl_callback_listener frame_listener = {
 bool window_open(Library *library, const char *title) {
     Globals *globals = &library->globals;
     Window *window = &library->window;
-    window->width = DEFAULT_COLUMNS * library->font.cell_width;
-    window->height = DEFAULT_ROWS * library->font.cell_height;
+    window->surface_width = library->settings.window_columns * library->font.cell_width;
+    window->surface_height = library->settings.window_rows * library->font.cell_height;
 
     xdg_wm_base_add_listener(globals->window_manager, &window_manager_listener, library);
     window->surface = wl_compositor_create_surface(globals->compositor);
@@ -84,12 +81,26 @@ bool window_open(Library *library, const char *title) {
 
 void window_close(Library *library) {
     Window *window = &library->window;
+    scale_detach(library);
     if (window->toplevel)
         xdg_toplevel_destroy(window->toplevel);
     if (window->shell_surface)
         xdg_surface_destroy(window->shell_surface);
     if (window->surface)
         wl_surface_destroy(window->surface);
+}
+
+// Pixels and grid from the surface size and the scale; the viewport shows the pixels at surface size.
+// Writes incoming, so the caller holds the lock.
+void window_resize(Library *library) {
+    Window *window = &library->window;
+    uint32_t scale = library->font.scale;
+    window->width = (window->surface_width * scale + 60) / 120;
+    window->height = (window->surface_height * scale + 60) / 120;
+    if (window->viewport)
+        wp_viewport_set_destination(window->viewport, window->surface_width, window->surface_height);
+    library->incoming->columns = window->width / library->font.cell_width;
+    library->incoming->rows = window->height / library->font.cell_height;
 }
 
 // The compositor answers when it wants the next frame. The next present carries the request.

@@ -222,8 +222,8 @@ static void device_selection(void *data, struct wl_data_device *, struct wl_data
 
 static void drag_move(Library *library, wl_fixed_t x, wl_fixed_t y) {
     Clipboard *clipboard = &library->clipboard;
-    clipboard->drag_column = fixed_to_eighths(x, library->font.cell_width);
-    clipboard->drag_row = fixed_to_eighths(y, library->font.cell_height);
+    clipboard->drag_column = fixed_to_eighths(x, library->font.cell_width, library->font.scale);
+    clipboard->drag_row = fixed_to_eighths(y, library->font.cell_height, library->font.scale);
 }
 
 static void drag_discard(Clipboard *clipboard) {

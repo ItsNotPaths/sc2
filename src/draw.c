@@ -148,6 +148,23 @@ static bool frame_build(Library *library) {
     return true;
 }
 
+// Loads the font the settings and scale ask for, and empties the atlas. The GPU must be idle.
+// A failure closes the window, since nothing can draw without a font and an atlas.
+static bool font_reload(Library *library) {
+    font_close(&library->font);
+    library->font = (Font){};
+    atlas_close(library);
+    library->atlas = (Atlas){};
+    bool loaded = font_load(&library->font, &library->settings, library->window.scale) && atlas_open(library);
+    pthread_mutex_lock(&library->lock);
+    if (loaded)
+        window_resize(library);
+    else
+        library->incoming->closed = 1;
+    pthread_mutex_unlock(&library->lock);
+    return loaded;
+}
+
 bool draw_open(Library *library) {
     if (!buffer_create(&library->graphics, sizeof(DrawFrame), &library->drawing.frame))
         return failed("cannot make the frame buffer");
@@ -160,14 +177,15 @@ void draw_close(Library *library) {
     buffer_destroy(&library->graphics, &library->drawing.pixels);
 }
 
-// Due when the compositor wants a frame and something changed: a commit, the window size,
-// or glyphs the last frame missed, now in the atlas.
+// Due when the compositor wants a frame and something changed: a commit, the scale, the window
+// size, or glyphs the last frame missed, now in the atlas. A settings change comes with a commit.
 bool draw_due(Library *library) {
     const Window *window = &library->window;
     const VkExtent2D extent = library->graphics.extent;
     if (!window->configured || window->frame_pending)
         return false;
     return atomic_load(&library->commit_count) != library->drawing.drawn_commit
+        || !font_matches(&library->font, &library->settings, window->scale)
         || extent.width != window->width || extent.height != window->height
         || atlas_fill_misses(library);
 }
@@ -177,6 +195,12 @@ void draw_frame(Library *library) {
     Window *window = &library->window;
     Drawing *drawing = &library->drawing;
     graphics_wait(graphics);
+    pthread_mutex_lock(&library->lock);
+    settings_update(library);
+    memcpy(library->incoming->palette, library->settings.palette, sizeof library->settings.palette);
+    pthread_mutex_unlock(&library->lock);
+    if (!font_matches(&library->font, &library->settings, window->scale) && !font_reload(library))
+        return;
     atlas_fill_misses(library);
     if ((graphics->extent.width != window->width || graphics->extent.height != window->height)
         && !graphics_resize(graphics, window->width, window->height))

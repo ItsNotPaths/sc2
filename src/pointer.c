@@ -1,9 +1,6 @@
 #include <linux/input-event-codes.h>
-#include <stdlib.h>
 
 #include "library.h"
-
-enum { ROWS_PER_NOTCH = 3, DEFAULT_CURSOR_SIZE = 24 };
 
 // Runs after the mouse moves, enters or leaves, and after each new layout.
 void pointer_hit(Library *library) {
@@ -15,18 +12,17 @@ void pointer_hit(Library *library) {
 
 static void pointer_move(Library *library, wl_fixed_t x, wl_fixed_t y) {
     otk_screen *incoming = library->incoming;
-    incoming->mouse_column = fixed_to_eighths(x, library->font.cell_width);
-    incoming->mouse_row = fixed_to_eighths(y, library->font.cell_height);
+    incoming->mouse_column = fixed_to_eighths(x, library->font.cell_width, library->font.scale);
+    incoming->mouse_row = fixed_to_eighths(y, library->font.cell_height, library->font.scale);
     pointer_hit(library);
 }
 
-// Without cursor-shape-v1: the default cursor from the user's xcursor theme.
+// Without cursor-shape-v1: the default cursor from the xcursor theme in settings.
 static void cursor_theme_load(Library *library) {
     Pointer *pointer = &library->pointer;
-    const char *size_text = getenv("XCURSOR_SIZE");
-    int size = size_text ? atoi(size_text) : 0;
-    pointer->cursor_theme = wl_cursor_theme_load(getenv("XCURSOR_THEME"), size > 0 ? size : DEFAULT_CURSOR_SIZE,
-                                                 library->globals.shared_memory);
+    const Settings *settings = &library->settings;
+    pointer->cursor_theme = wl_cursor_theme_load(settings->cursor_theme[0] ? settings->cursor_theme : nullptr,
+                                                 settings->cursor_size, library->globals.shared_memory);
     if (!pointer->cursor_theme)
         return;
     struct wl_cursor *cursor = wl_cursor_theme_get_cursor(pointer->cursor_theme, "default");
@@ -83,18 +79,18 @@ static void pointer_button(void *data, struct wl_pointer *, uint32_t serial, uin
         transition_set(&library->incoming->mouse_transitions[button - BTN_LEFT], state == WL_POINTER_BUTTON_STATE_PRESSED);
 }
 
-// Wheels count through axis_value120; touchpads and other smooth sources in pixels here.
+// Wheels count through axis_value120; touchpads and other smooth sources in surface units here.
 static void pointer_axis(void *data, struct wl_pointer *, uint32_t, uint32_t axis, wl_fixed_t value) {
     Library *library = data;
     uint32_t source = library->pointer.axis_source;
     if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL
         && (source == WL_POINTER_AXIS_SOURCE_FINGER || source == WL_POINTER_AXIS_SOURCE_CONTINUOUS))
-        wheel_add(library, wl_fixed_to_double(value) * 8 / library->font.cell_height);
+        wheel_add(library, wl_fixed_to_double(value) * library->font.scale / 120 * 8 / library->font.cell_height);
 }
 
 static void pointer_axis_value120(void *data, struct wl_pointer *, uint32_t axis, int32_t value120) {
     if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL)
-        wheel_add(data, value120 * ROWS_PER_NOTCH * 8 / 120.0);
+        wheel_add(data, value120 * ((Library *)data)->settings.wheel_rows * 8 / 120.0);
 }
 
 static void pointer_axis_source(void *data, struct wl_pointer *, uint32_t source) {

@@ -1,3 +1,5 @@
+#include <string.h>
+
 #include "library.h"
 
 #include FT_SYNTHESIS_H
@@ -9,8 +11,13 @@ static int32_t round_pixels(FT_Pos value) {  // 26.6 fixed point
 // The cell is fixed at 1:2. Picks the largest size whose line height and advance both fit,
 // then pads: the line is centered in the cell height, each glyph in the cell width.
 bool font_load(Font *font, const Settings *settings, uint32_t scale) {
+    strcpy(font->path, settings->font_path);
+    font->size = settings->font_size;
+    font->scale = scale;
+    if (!settings->font_size)
+        return failed("font_size is 0 in src/settings.c");
     if (FT_Init_FreeType(&font->freetype) || FT_New_Face(font->freetype, settings->font_path, 0, &font->face))
-        return failed("cannot open the font");
+        return failed("cannot open font_path from src/settings.c");
     FT_Face face = font->face;
     if (!FT_IS_SCALABLE(face) || FT_Load_Char(face, 'M', FT_LOAD_NO_SCALE))
         return failed("the font must be scalable and have an M");
@@ -34,6 +41,10 @@ bool font_load(Font *font, const Settings *settings, uint32_t scale) {
     int32_t lowest_top = (int32_t)(font->cell_height - font->underline_thickness);
     font->underline_top = underline_top < lowest_top ? underline_top : lowest_top;
     return true;
+}
+
+bool font_matches(const Font *font, const Settings *settings, uint32_t scale) {
+    return font->size == settings->font_size && font->scale == scale && strcmp(font->path, settings->font_path) == 0;
 }
 
 void font_close(Font *font) {

@@ -42,8 +42,8 @@ otk_screen *otk_open(const char *title) {
     if (library.screen)
         return nullptr;
     library.memory_file = -1;
-    settings_load(&library.settings);
     library.window.scale = 120;
+    settings_update(&library);
     bool opened = screen_map(&library)
         && wayland_connect(&library)
         && font_load(&library.font, &library.settings, library.window.scale)

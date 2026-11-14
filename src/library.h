@@ -41,12 +41,15 @@ typedef struct {
 } Globals;  // 0 where the compositor lacks one
 
 typedef struct {
-    struct wl_surface   *surface;
-    struct xdg_surface  *shell_surface;
-    struct xdg_toplevel *toplevel;
-    uint32_t width, height;                    // pixels
+    struct wl_surface             *surface;
+    struct xdg_surface            *shell_surface;
+    struct xdg_toplevel           *toplevel;
+    struct wp_viewport            *viewport;          // 0 without fractional scale
+    struct wp_fractional_scale_v1 *fractional_scale;
+    uint32_t surface_width, surface_height;    // the compositor's units
+    uint32_t width, height;                    // pixels: the surface size times the scale
     uint32_t requested_width, requested_height;  // from the last toplevel configure; 0 lets us choose
-    uint32_t scale;                            // 120ths
+    uint32_t scale;                            // 120ths, from the compositor; font.scale is the one drawn
     bool     configured;                       // the first configure is acknowledged
     bool     frame_pending;                    // a frame callback is outstanding
 } Window;
@@ -111,8 +114,20 @@ typedef struct {
 } Clipboard;
 
 typedef struct {
+    char     font_path[256];
+    char     cursor_theme[64];                 // only without cursor-shape-v1; "" is the default theme
+    uint32_t palette[16];                      // RGBA, base16 order
+    uint32_t font_size;                        // cell height in pixels at scale 1
+    uint32_t cursor_size;                      // pixels
+    uint16_t window_columns, window_rows;      // the window's size until the compositor picks one
+    uint8_t  wheel_rows;                       // rows per wheel notch
+} Settings;
+
+typedef struct {
     FT_Library freetype;
     FT_Face    face;
+    char       path[256];                      // what it was loaded from, to tell when settings change
+    uint32_t   size, scale;
     uint32_t   cell_width, cell_height;        // pixels, 1:2
     int32_t    baseline;                       // pixels from the cell top
     uint32_t   underline_top, underline_thickness;
@@ -176,11 +191,6 @@ typedef struct {
     uint32_t frame_number;                     // of the last frame built
 } Drawing;
 
-typedef struct {
-    char     font_path[256];
-    uint32_t font_size;                        // cell height in pixels at scale 1
-    uint32_t palette[16];                      // RGBA, base16 order
-} Settings;
 
 typedef struct { int32_t left, top, right, bottom; } Rectangle;  // eighths of a cell, screen space
 
@@ -219,7 +229,7 @@ typedef struct {
     Graphics  graphics;
     Atlas     atlas;
     Drawing   drawing;
-    Settings  settings;
+    Settings  settings;                        // only the library thread changes these, in settings_update
     Placement placements[NODE_CAPACITY];       // drawn nodes, flattened
 } Library;
 
@@ -228,9 +238,9 @@ static inline int64_t floor_divide(int64_t dividend, int64_t divisor) {
     return quotient - (dividend % divisor != 0 && (dividend < 0) != (divisor < 0));
 }
 
-// wl_fixed is 24.8 fixed point, in pixels.
-static inline int16_t fixed_to_eighths(wl_fixed_t position, uint32_t cell_size) {
-    return floor_divide((int64_t)position * 8, (int64_t)cell_size * 256);
+// wl_fixed is 24.8 fixed point, in surface units; scale in 120ths turns them into pixels.
+static inline int16_t fixed_to_eighths(wl_fixed_t position, uint32_t cell_size, uint32_t scale) {
+    return floor_divide((int64_t)position * 8 * scale, (int64_t)cell_size * 256 * 120);
 }
 
 static inline struct timespec from_nanoseconds(uint64_t nanoseconds) {
@@ -262,9 +272,11 @@ void wayland_disconnect(Library *library);
 bool window_open(Library *library, const char *title);
 void window_close(Library *library);
 void window_request_frame(Library *library);
+void window_resize(Library *library);
 
 // scale.c
 void scale_attach(Library *library);
+void scale_detach(Library *library);
 
 // keyboard.c
 void keyboard_attach(Library *library);
@@ -288,10 +300,11 @@ size_t clipboard_poll(const Library *library, struct pollfd *waiting);
 void   clipboard_transfer(Library *library);
 
 // settings.c
-void settings_load(Settings *settings);
+void settings_update(Library *library);
 
 // font.c
 bool font_load(Font *font, const Settings *settings, uint32_t scale);
+bool font_matches(const Font *font, const Settings *settings, uint32_t scale);
 void font_close(Font *font);
 void font_draw(const Font *font, uint32_t codepoint, bool bold, uint8_t *coverage);
 
