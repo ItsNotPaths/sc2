@@ -1,10 +1,10 @@
-// Type, click and scroll. Node 0 fills the window; node 1 is a scroll box, node 2 the lines inside it.
+// Type, click, scroll, copy, paste and drop. Node 0 fills the window; node 1 is a scroll box, node 2 the lines inside it.
 #include <stdio.h>
 #include <string.h>
 
 #include "otk.h"
 
-enum { LINE_COUNT = 200, TYPED_CAPACITY = 256 };
+enum { LINE_COUNT = 200, TYPED_CAPACITY = 256, CONTROL_C = 0x03, CONTROL_V = 0x16 };
 
 static Cell cell(uint32_t codepoint, uint32_t foreground, uint32_t background, uint32_t bold) {
     return codepoint << CELL_CODEPOINT_SHIFT | foreground << CELL_FOREGROUND_SHIFT
@@ -14,6 +14,18 @@ static Cell cell(uint32_t codepoint, uint32_t foreground, uint32_t background, u
 static void put(Cell *cells, int width, int column, int row, const char *text, uint32_t foreground, uint32_t background) {
     for (int index = 0; text[index] && column + index < width; index++)
         cells[row * width + column + index] = cell((unsigned char)text[index], foreground, background, 0);
+}
+
+static int utf8_encode(uint32_t codepoint, uint8_t *bytes) {
+    if (codepoint < 0x80) {
+        bytes[0] = codepoint;
+        return 1;
+    }
+    int count = codepoint < 0x800 ? 2 : codepoint < 0x10000 ? 3 : 4;
+    for (int index = count - 1; index > 0; index--, codepoint >>= 6)
+        bytes[index] = 0x80 | (codepoint & 0x3F);
+    bytes[0] = (0xF0 << (4 - count)) | codepoint;
+    return count;
 }
 
 static void fill(Cell *cells, int count, uint32_t background) {
@@ -27,16 +39,44 @@ int main(void) {
         return 1;
     uint32_t typed[TYPED_CAPACITY];
     int typed_length = 0;
-    uint32_t text_read_index = 0;
+    uint32_t text_read_index = 0, paste_sequence = 0;
+    char paste_line[128] = "Ctrl+C copies the typed line, Ctrl+V pastes text, or drop something here";
     while (otk_tick(screen)) {
         for (; text_read_index != screen->text_write_index; text_read_index++) {
             uint32_t codepoint = screen->text[text_read_index % TEXT_CAPACITY];
-            if (codepoint == '\b' && typed_length > 0)
+            if (codepoint == CONTROL_C) {
+                screen->copy_length = 0;
+                for (int index = 0; index < typed_length; index++)
+                    screen->copy_length += utf8_encode(typed[index], &screen->copy[screen->copy_length]);
+                screen->copy_data = DATA_TEXT;
+                screen->copy_sequence++;
+            } else if (codepoint == CONTROL_V && screen->paste_offered & DATA_TEXT) {
+                screen->paste_request_data = DATA_TEXT;
+                screen->paste_request++;
+            } else if (codepoint == '\b' && typed_length > 0)
                 typed_length--;
             else if (codepoint == '\r')
                 typed_length = 0;
             else if (codepoint >= ' ' && typed_length < TYPED_CAPACITY)
                 typed[typed_length++] = codepoint;
+        }
+
+        // Pasted text is added byte by byte, so only ASCII comes through intact.
+        if (screen->paste_sequence != paste_sequence) {
+            paste_sequence = screen->paste_sequence;
+            for (uint32_t index = 0; screen->paste_source == PASTE_CLIPBOARD && index < screen->paste_length; index++)
+                if (screen->paste[index] >= ' ' && screen->paste[index] < 0x7F && typed_length < TYPED_CAPACITY)
+                    typed[typed_length++] = screen->paste[index];
+            int written = snprintf(paste_line, sizeof paste_line, "%s: %u bytes, data %d",
+                                   screen->paste_source == PASTE_DROP ? "drop" : "paste", screen->paste_length,
+                                   screen->paste_data);
+            if (screen->paste_source == PASTE_DROP)
+                snprintf(paste_line + written, sizeof paste_line - written, ", node %d at %d,%d: %.*s",
+                         screen->drop_node, screen->drop_column, screen->drop_row,
+                         (int)(screen->paste_length < 60 ? screen->paste_length : 60), (const char *)screen->paste);
+            for (char *character = paste_line; *character; character++)
+                if ((unsigned char)*character < ' ')  // a uri-list ends its lines with \r\n
+                    *character = ' ';
         }
 
         int columns = screen->columns, rows = screen->rows;
@@ -65,6 +105,7 @@ int main(void) {
                  screen->mouse_column, screen->mouse_row, screen->mouse_node,
                  (screen->mouse_transitions[MOUSE_LEFT] + 1) / 2, screen->wheel_total);
         put(cells, columns, 0, 2, status, 3, 0);
+        put(cells, columns, 0, 3, paste_line, 3, 0);
         for (int index = 0; index < typed_length && index < columns; index++)
             cells[4 * columns + index] = cell(typed[index], 6, 0, 0);
         if (typed_length < columns)
