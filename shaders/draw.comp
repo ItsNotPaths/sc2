@@ -1,10 +1,133 @@
 #version 460
+#extension GL_EXT_buffer_reference : require
 
-// One invocation per screen pixel. Walks the flat node list from the top and
-// takes the first node that is not clear at that point.
-// (hole draw-shader :tags draw :sev blocker :needs node-flatten) writes nothing; no node walk, no cells through the atlas, no pixels, no misses recorded.
+// One invocation per screen pixel. Walks the nodes from the top, blending each layer under
+// the ones above it, and stops at the first opaque one. The window background is palette 0.
+// Layouts match DrawFrame and DrawNode in draw.c.
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
+const uint NODE_CELLS     = 1u;  // otk.h
+const uint CODEPOINT_MASK = 0x1fffffu;
+const uint BOLD_BIT       = 1u << 29;
+const uint UNDERLINE_BIT  = 1u << 30;
+const uint CLEAR_BIT      = 1u << 31;
+const uint NO_SLOT        = 0xffffffffu;
+
+layout(buffer_reference, std430) readonly buffer Cells { uint cells[]; };
+layout(buffer_reference, std430) readonly buffer Coverage { uint words[]; };     // a byte per pixel, 4 per word
+layout(buffer_reference, std430) readonly buffer GlyphTable { uint entries[]; }; // key, slot pairs
+layout(buffer_reference, std430) buffer MissTable { uint keys[]; };
+
+struct Node {
+    int  clip_left, clip_top, clip_right, clip_bottom;
+    int  content_left, content_top;
+    uint kind;
+    uint storage_offset;
+    uint content_width, content_height;
+};
+
+layout(buffer_reference, std430) readonly buffer Frame {
+    Cells      cells;
+    Coverage   coverage;
+    GlyphTable glyph_table;
+    MissTable  miss_table;
+    uint palette[16];
+    uint cell_width, cell_height;
+    uint underline_top, underline_thickness;
+    uint glyph_table_mask, miss_table_mask;
+    uint node_count;
+    Node nodes[];
+};
+
+layout(set = 0, binding = 0) writeonly uniform image2D target;
+layout(push_constant) uniform Push { Frame frame; };
+
+vec3 palette_color(uint index) {
+    uint color = frame.palette[index];
+    return vec3(color >> 24, (color >> 16) & 255u, (color >> 8) & 255u) / 255.0;
+}
+
+uint glyph_hash(uint key) {
+    return key * 2654435761u;
+}
+
+// Each missing glyph goes in once, however many pixels meet it.
+void record_miss(uint key) {
+    uint index = glyph_hash(key) & frame.miss_table_mask;
+    for (uint probe = 0u; probe <= frame.miss_table_mask; probe++) {
+        uint previous = atomicCompSwap(frame.miss_table.keys[index], 0u, key);
+        if (previous == 0u || previous == key)
+            return;
+        index = (index + 1u) & frame.miss_table_mask;
+    }
+}
+
+uint glyph_slot(uint key) {
+    uint index = glyph_hash(key) & frame.glyph_table_mask;
+    while (true) {
+        uint entry_key = frame.glyph_table.entries[index * 2u];
+        if (entry_key == key)
+            return frame.glyph_table.entries[index * 2u + 1u];
+        if (entry_key == 0u)
+            return NO_SLOT;
+        index = (index + 1u) & frame.glyph_table_mask;
+    }
+}
+
+// inside: the pixel within the cell.
+float glyph_coverage(uint cell, uvec2 inside) {
+    uint codepoint = cell & CODEPOINT_MASK;
+    if (codepoint <= 32u)  // controls and space draw nothing
+        return 0.0;
+    uint key = codepoint | (cell & BOLD_BIT);
+    uint slot = glyph_slot(key);
+    if (slot == NO_SLOT) {
+        record_miss(key);
+        return 0.0;
+    }
+    uint byte_index = (slot * frame.cell_height + inside.y) * frame.cell_width + inside.x;
+    return float((frame.coverage.words[byte_index >> 2] >> ((byte_index & 3u) * 8u)) & 255u) / 255.0;
+}
+
+// Premultiplied color and alpha. Outside the grid is transparent.
+vec4 cell_layer(Node node, ivec2 pixel) {
+    ivec2 offset = pixel - ivec2(node.content_left, node.content_top);
+    if (offset.x < 0 || offset.y < 0)
+        return vec4(0.0);
+    uvec2 cell_size = uvec2(frame.cell_width, frame.cell_height);
+    uvec2 position = uvec2(offset) / cell_size;  // column, row
+    if (position.x >= node.content_width || position.y >= node.content_height)
+        return vec4(0.0);
+    uint cell = frame.cells.cells[node.storage_offset + position.y * node.content_width + position.x];
+    uvec2 inside = uvec2(offset) - position * cell_size;
+
+    float coverage = glyph_coverage(cell, inside);
+    if ((cell & UNDERLINE_BIT) != 0u && inside.y >= frame.underline_top
+        && inside.y < frame.underline_top + frame.underline_thickness)
+        coverage = 1.0;
+    vec3 foreground = palette_color((cell >> 21) & 15u);
+    if ((cell & CLEAR_BIT) != 0u)
+        return vec4(foreground * coverage, coverage);
+    return vec4(mix(palette_color((cell >> 25) & 15u), foreground, coverage), 1.0);
+}
+
 void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(pixel, imageSize(target))))
+        return;
+    vec3 color = vec3(0.0);  // premultiplied, from the layers above
+    float shown = 1.0;       // how much of the layers below still shows
+    for (int index = int(frame.node_count) - 1; index >= 0 && shown > 0.0; index--) {
+        Node node = frame.nodes[index];
+        if (node.kind != NODE_CELLS || pixel.x < node.clip_left || pixel.x >= node.clip_right
+            || pixel.y < node.clip_top || pixel.y >= node.clip_bottom)
+            continue;
+        // (hole image-import) pixel nodes are skipped; no scaled read of the image.
+        vec4 layer = cell_layer(node, pixel);
+        color += shown * layer.rgb;
+        shown *= 1.0 - layer.a;
+    }
+    color += shown * palette_color(0u);
+    imageStore(target, pixel, vec4(color, 1.0));
 }

@@ -42,11 +42,16 @@ static const struct wl_registry_listener registry_listener = {
 
 static void seat_capabilities(void *data, struct wl_seat *, uint32_t capabilities) {
     Library *library = data;
-    // (hole seat-loss :tags input :sev polish) keyboard and pointer are never released when the seat loses them.
-    if (capabilities & WL_SEAT_CAPABILITY_KEYBOARD && !library->keyboard.keyboard)
+    bool has_keyboard = capabilities & WL_SEAT_CAPABILITY_KEYBOARD;
+    bool has_pointer = capabilities & WL_SEAT_CAPABILITY_POINTER;
+    if (has_keyboard && !library->keyboard.keyboard)
         keyboard_attach(library);
-    if (capabilities & WL_SEAT_CAPABILITY_POINTER && !library->pointer.pointer)
+    if (!has_keyboard && library->keyboard.keyboard)
+        keyboard_detach(library);
+    if (has_pointer && !library->pointer.pointer)
         pointer_attach(library);
+    if (!has_pointer && library->pointer.pointer)
+        pointer_detach(library);
 }
 
 static void seat_name(void *, struct wl_seat *, const char *) {}
@@ -59,12 +64,12 @@ static const struct wl_seat_listener seat_listener = {
 bool wayland_connect(Library *library) {
     library->display = wl_display_connect(nullptr);
     if (!library->display)
-        return false;
+        return failed("cannot connect to the Wayland compositor");
     struct wl_registry *registry = wl_display_get_registry(library->display);
     wl_registry_add_listener(registry, &registry_listener, library);
     wl_display_roundtrip(library->display);
     if (!library->globals.compositor || !library->globals.window_manager)
-        return false;
+        return failed("the compositor lacks wl_compositor or xdg_wm_base");
     if (library->globals.seat) {
         wl_seat_add_listener(library->globals.seat, &seat_listener, library);
         clipboard_attach(library);
@@ -75,6 +80,8 @@ bool wayland_connect(Library *library) {
 }
 
 void wayland_disconnect(Library *library) {
+    keyboard_detach(library);
+    pointer_detach(library);
     if (library->display)
         wl_display_disconnect(library->display);
 }

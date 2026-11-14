@@ -7,6 +7,8 @@
 
 static_assert(offsetof(otk_screen, pixels) == 0, "graphics import needs pixels on a page");
 static_assert(sizeof(Node) == 28, "bindings read the Node layout from otk.h");
+static_assert(offsetof(otk_screen, text) + sizeof(uint32_t[TEXT_CAPACITY]) == offsetof(otk_screen, key_transitions),
+              "tick_receive copies the ring, then every field from key_transitions to nodes");
 
 static Library library;  // one window per process
 
@@ -41,12 +43,14 @@ otk_screen *otk_open(const char *title) {
         return nullptr;
     library.memory_file = -1;
     settings_load(&library.settings);
+    library.window.scale = 120;
     bool opened = screen_map(&library)
         && wayland_connect(&library)
+        && font_load(&library.font, &library.settings, library.window.scale)
         && window_open(&library, title)
         && graphics_open(&library)
-        && font_load(&library.settings)
-        && atlas_open(&library);
+        && atlas_open(&library)
+        && draw_open(&library);
     if (opened) {
         library.screen->tick_rate = 240;
         memcpy(library.incoming->palette, library.settings.palette, sizeof library.settings.palette);
@@ -56,6 +60,7 @@ otk_screen *otk_open(const char *title) {
         otk_close(library.screen);
         return nullptr;
     }
+    tick_receive(&library);
     return library.screen;
 }
 
@@ -72,7 +77,11 @@ void otk_close(otk_screen *screen) {
     if (screen != library.screen)
         return;
     library_stop(&library);
-    graphics_close(&library);
+    graphics_wait(&library.graphics);
+    draw_close(&library);
+    atlas_close(&library);
+    graphics_close(&library.graphics);
+    font_close(&library.font);
     window_close(&library);
     wayland_disconnect(&library);
     screen_unmap(&library);
