@@ -43,7 +43,7 @@ static bool frame_build(Library *library) {
 
     Rectangle window = {0, 0, library->window.width * 8 / font->cell_width, library->window.height * 8 / font->cell_height};
     flatten(committed->nodes, window, placements);
-    library->incoming->mouse_node = node_at(placements, library->incoming->mouse_column, library->incoming->mouse_row);
+    pointer_hit(library);
 
     uint32_t node_count = 0;
     uint64_t cell_count = 0;

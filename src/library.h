@@ -62,6 +62,7 @@ typedef struct {
     struct wp_cursor_shape_device_v1 *cursor_shape;
     uint32_t axis_source;                      // of the current pointer frame
     double   wheel_remainder;                  // eighths not yet in wheel_total
+    bool     inside;                           // the mouse is over the window
 } Pointer;
 
 typedef struct {
@@ -219,6 +220,7 @@ void text_append(Library *library, uint32_t codepoint);
 // pointer.c
 void pointer_attach(Library *library);
 void pointer_detach(Library *library);
+void pointer_hit(Library *library);
 
 // text_input.c
 void text_input_attach(Library *library);

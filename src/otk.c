@@ -53,6 +53,7 @@ otk_screen *otk_open(const char *title) {
         && draw_open(&library);
     if (opened) {
         library.screen->tick_rate = 240;
+        library.incoming->mouse_node = MOUSE_OUTSIDE;
         memcpy(library.incoming->palette, library.settings.palette, sizeof library.settings.palette);
         opened = library_start(&library);
     }

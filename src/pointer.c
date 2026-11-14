@@ -4,12 +4,20 @@
 
 enum { ROWS_PER_NOTCH = 3 };
 
+// Runs after the mouse moves, enters or leaves, and after each new layout.
+void pointer_hit(Library *library) {
+    otk_screen *incoming = library->incoming;
+    incoming->mouse_node = library->pointer.inside
+        ? node_at(library->placements, incoming->mouse_column, incoming->mouse_row)
+        : MOUSE_OUTSIDE;
+}
+
 // wl_fixed is 24.8 fixed point, in pixels.
 static void pointer_move(Library *library, wl_fixed_t x, wl_fixed_t y) {
     otk_screen *incoming = library->incoming;
     incoming->mouse_column = floor_divide((int64_t)x * 8, (int64_t)library->font.cell_width * 256);
     incoming->mouse_row = floor_divide((int64_t)y * 8, (int64_t)library->font.cell_height * 256);
-    incoming->mouse_node = node_at(library->placements, incoming->mouse_column, incoming->mouse_row);
+    pointer_hit(library);
 }
 
 // Keeps the fraction, so slow touchpad scrolls still add up.
@@ -26,10 +34,15 @@ static void pointer_enter(void *data, struct wl_pointer *, uint32_t serial, stru
     Library *library = data;
     if (library->pointer.cursor_shape)
         wp_cursor_shape_device_v1_set_shape(library->pointer.cursor_shape, serial, WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT);
+    library->pointer.inside = true;
     pointer_move(library, x, y);
 }
 
-static void pointer_leave(void *, struct wl_pointer *, uint32_t, struct wl_surface *) {}
+static void pointer_leave(void *data, struct wl_pointer *, uint32_t, struct wl_surface *) {
+    Library *library = data;
+    library->pointer.inside = false;
+    pointer_hit(library);
+}
 
 static void pointer_motion(void *data, struct wl_pointer *, uint32_t, wl_fixed_t x, wl_fixed_t y) {
     pointer_move(data, x, y);
@@ -90,9 +103,11 @@ void pointer_attach(Library *library) {
 
 void pointer_detach(Library *library) {
     Pointer *pointer = &library->pointer;
+    if (!pointer->pointer)
+        return;
     if (pointer->cursor_shape)
         wp_cursor_shape_device_v1_destroy(pointer->cursor_shape);
-    if (pointer->pointer)
-        wl_pointer_release(pointer->pointer);
+    wl_pointer_release(pointer->pointer);
     *pointer = (Pointer){};
+    pointer_hit(library);
 }

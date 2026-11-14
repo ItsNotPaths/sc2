@@ -41,6 +41,8 @@ enum {
     MOUSE_EXTRA, MOUSE_FORWARD, MOUSE_BACK, MOUSE_TASK
 };
 
+enum { MOUSE_OUTSIDE = 255 };  // mouse_node when the mouse is not over the window
+
 // Fields run largest to smallest. Each writer's fields stay together, so a tick copies one range each way.
 typedef struct {
     uint32_t storage_offset;                 // into cells or pixels
@@ -73,7 +75,7 @@ typedef struct {
     uint16_t columns, rows;
     int16_t  mouse_column, mouse_row;        // eighths of a cell
     int16_t  drop_column, drop_row;          // eighths, where the drop happened
-    uint8_t  mouse_node;                     // topmost node under the mouse
+    uint8_t  mouse_node;                     // topmost node under the mouse, or MOUSE_OUTSIDE
     uint8_t  drop_node;
     uint8_t  paste_offered;                  // DATA_ bits on the clipboard now
     uint8_t  paste_source;                   // PASTE_CLIPBOARD or PASTE_DROP
