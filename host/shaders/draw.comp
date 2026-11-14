@@ -2,17 +2,21 @@
 #extension GL_EXT_buffer_reference : require
 
 // One invocation per screen pixel. Walks the nodes from the top, blending each layer under
-// the ones above it, and stops at the first opaque one. The window background is palette 0.
-// Layouts match DrawFrame and DrawNode in draw.c.
+// the ones above it, and stops at the first opaque one. Layouts match DrawFrame and DrawNode in
+// draw.c, cells and styles match sc2.h, glyph keys match host.h.
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
 const uint NODE_CELLS     = 1u;  // sc2.h
 const uint NODE_PIXELS    = 2u;
-const uint CODEPOINT_MASK = 0x1fffffu;
-const uint BOLD_BIT       = 1u << 29;
-const uint UNDERLINE_BIT  = 1u << 30;
-const uint CLEAR_BIT      = 1u << 31;
+const uint CODEPOINT_MASK   = 0x1fffffu;
+const uint STYLE_SHIFT      = 21u;
+const uint STYLE_MASK       = 1023u;
+const uint WIDE_BIT         = 1u << 31;
+const uint GLYPH_BOLD       = 1u << 21;
+const uint GLYPH_ITALIC     = 1u << 22;
+const uint GLYPH_LEFT_HALF  = 1u << 23;
+const uint GLYPH_RIGHT_HALF = 1u << 24;
 const uint NO_SLOT        = 0xffffffffu;
 const uint MISS_PROBES    = 8u;  // a crowded miss table drops the key; the next frame records it
 
@@ -22,6 +26,7 @@ layout(buffer_reference, std430) readonly buffer GlyphTable { uint entries[]; };
 layout(buffer_reference, std430) buffer MissTable { uint keys[]; };
 layout(buffer_reference, std430) readonly buffer Pixels { uint words[]; };      // RGBA bytes, straight alpha
 layout(buffer_reference, std430) buffer SlotFrames { uint frames[]; };  // the last frame that drew each slot
+layout(buffer_reference, std430) readonly buffer Styles { uint words[]; };  // foreground, background, then bold, italic, underline bytes
 
 struct Node {
     int  clip_left, clip_top, clip_right, clip_bottom;
@@ -39,7 +44,8 @@ layout(buffer_reference, std430) readonly buffer Frame {
     MissTable  miss_table;
     SlotFrames slot_frames;
     Pixels     pixels;
-    uint palette[16];
+    Styles     styles;
+    uint background;
     uint cell_width, cell_height;
     uint underline_top, underline_thickness;
     uint glyph_table_mask, miss_table_mask;
@@ -51,9 +57,8 @@ layout(buffer_reference, std430) readonly buffer Frame {
 layout(set = 0, binding = 0) writeonly uniform image2D target;
 layout(push_constant) uniform Push { Frame frame; };
 
-vec3 palette_color(uint index) {
-    uint color = frame.palette[index];
-    return vec3(color >> 24, (color >> 16) & 255u, (color >> 8) & 255u) / 255.0;
+vec4 color_of(uint rgba) {
+    return vec4(rgba >> 24, (rgba >> 16) & 255u, (rgba >> 8) & 255u, rgba & 255u) / 255.0;
 }
 
 uint glyph_hash(uint key) {
@@ -88,12 +93,12 @@ uint glyph_slot(uint key) {
     }
 }
 
-// inside: the pixel within the cell.
-float glyph_coverage(uint cell, uvec2 inside) {
+// inside: the pixel within the cell. drawn: the glyph key bits besides the codepoint.
+float glyph_coverage(uint cell, uint drawn, uvec2 inside) {
     uint codepoint = cell & CODEPOINT_MASK;
     if (codepoint <= 32u)  // controls and space draw nothing
         return 0.0;
-    uint key = codepoint | (cell & BOLD_BIT);
+    uint key = codepoint | drawn;
     uint slot = glyph_slot(key);
     if (slot == NO_SLOT) {
         record_miss(key);
@@ -114,17 +119,29 @@ vec4 cell_layer(Node node, ivec2 pixel) {
     uvec2 position = uvec2(offset) / cell_size;  // column, row
     if (position.x >= node.content_width || position.y >= node.content_height)
         return vec4(0.0);
-    uint cell = frame.cells.cells[node.storage_offset + position.y * node.content_width + position.x];
+    uint row_start = node.storage_offset + position.y * node.content_width;
+    uint cell = frame.cells.cells[row_start + position.x];
+    uint drawn = (cell & WIDE_BIT) != 0u ? GLYPH_LEFT_HALF : 0u;
+    if (position.x > 0u && (frame.cells.cells[row_start + position.x - 1u] & WIDE_BIT) != 0u) {
+        cell = frame.cells.cells[row_start + position.x - 1u];  // the right half of the wide cell before
+        drawn = GLYPH_RIGHT_HALF;
+    }
     uvec2 inside = uvec2(offset) - position * cell_size;
 
-    float coverage = glyph_coverage(cell, inside);
-    if ((cell & UNDERLINE_BIT) != 0u && inside.y >= frame.underline_top
+    uint style = ((cell >> STYLE_SHIFT) & STYLE_MASK) * 3u;
+    uint attributes = frame.styles.words[style + 2u];
+    if ((attributes & 0xffu) != 0u)
+        drawn |= GLYPH_BOLD;
+    if ((attributes & 0xff00u) != 0u)
+        drawn |= GLYPH_ITALIC;
+    float coverage = glyph_coverage(cell, drawn, inside);
+    if ((attributes & 0xff0000u) != 0u && inside.y >= frame.underline_top
         && inside.y < frame.underline_top + frame.underline_thickness)
         coverage = 1.0;
-    vec3 foreground = palette_color((cell >> 21) & 15u);
-    if ((cell & CLEAR_BIT) != 0u)
-        return vec4(foreground * coverage, coverage);
-    return vec4(mix(palette_color((cell >> 25) & 15u), foreground, coverage), 1.0);
+    vec4 foreground = color_of(frame.styles.words[style]);
+    vec4 background = color_of(frame.styles.words[style + 1u]);
+    float ink = foreground.a * coverage;
+    return vec4(foreground.rgb * ink, ink) + vec4(background.rgb * background.a, background.a) * (1.0 - ink);
 }
 
 // Premultiplied, so filtering never pulls color out of transparent pixels.
@@ -161,6 +178,6 @@ void main() {
         color += shown * layer.rgb;
         shown *= 1.0 - layer.a;
     }
-    color += shown * palette_color(0u);
+    color += shown * color_of(frame.background).rgb;
     imageStore(target, pixel, vec4(color, 1.0));
 }

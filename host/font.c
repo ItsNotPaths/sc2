@@ -54,16 +54,18 @@ void font_close(Font *font) {
         FT_Done_FreeType(font->freetype);
 }
 
-// Fills coverage: cell_width by cell_height bytes, zeroed by the caller.
-// A glyph wider than the cell, such as CJK, is squeezed to fit. A missing glyph draws as the font's .notdef.
-void font_draw(const Font *font, uint32_t codepoint, bool bold, uint8_t *coverage) {
+// Fills coverage for one glyph key: cell_width by cell_height bytes, zeroed by the caller. A wide
+// glyph spans two cells and this fills one half. A glyph wider than its cells, such as CJK in one
+// cell, is squeezed to fit. A missing glyph draws as the font's .notdef.
+void font_draw(const Font *font, uint32_t key, uint8_t *coverage) {
     FT_Face face = font->face;
-    FT_UInt glyph = FT_Get_Char_Index(face, codepoint);
+    FT_UInt glyph = FT_Get_Char_Index(face, key & GLYPH_CODEPOINT_MASK);
     if (FT_Load_Glyph(face, glyph, FT_LOAD_NO_BITMAP))
         return;
-    FT_Pos cell_width = (FT_Pos)font->cell_width << 6;
-    if (face->glyph->advance.x > cell_width) {
-        FT_Matrix squeeze = {.xx = FT_DivFix(cell_width, face->glyph->advance.x), .yy = 0x10000};
+    bool wide = key & (GLYPH_LEFT_HALF | GLYPH_RIGHT_HALF);
+    FT_Pos width = ((FT_Pos)font->cell_width * (wide ? 2 : 1)) << 6;
+    if (face->glyph->advance.x > width) {
+        FT_Matrix squeeze = {.xx = FT_DivFix(width, face->glyph->advance.x), .yy = 0x10000};
         FT_Set_Transform(face, &squeeze, nullptr);
         FT_Error error = FT_Load_Glyph(face, glyph, FT_LOAD_NO_BITMAP);
         FT_Set_Transform(face, nullptr, nullptr);
@@ -72,12 +74,16 @@ void font_draw(const Font *font, uint32_t codepoint, bool bold, uint8_t *coverag
     }
     FT_GlyphSlot slot = face->glyph;
     FT_Pos advance = slot->advance.x;
-    if (bold)
+    if (key & GLYPH_BOLD)
         FT_GlyphSlot_Embolden(slot);
+    if (key & GLYPH_ITALIC)
+        FT_GlyphSlot_Oblique(slot);
     if (FT_Render_Glyph(slot, FT_RENDER_MODE_NORMAL) || slot->bitmap.pixel_mode != FT_PIXEL_MODE_GRAY)
         return;
 
-    int32_t left = round_pixels(cell_width - advance) / 2 + slot->bitmap_left;
+    int32_t left = round_pixels(width - advance) / 2 + slot->bitmap_left;
+    if (key & GLYPH_RIGHT_HALF)
+        left -= (int32_t)font->cell_width;
     int32_t top = font->baseline - slot->bitmap_top;
     for (uint32_t row = 0; row < slot->bitmap.rows; row++) {
         int32_t cell_row = top + (int32_t)row;

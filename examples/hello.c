@@ -7,14 +7,44 @@
 enum { LINE_COUNT = 200, TYPED_CAPACITY = 256, CONTROL_C = 0x03, CONTROL_V = 0x16 };
 enum { SCANCODE_LEFT_CONTROL = 29, SCANCODE_RIGHT_CONTROL = 97, ZOOM_STEP = 2 };
 
-static sc2_cell cell(uint32_t codepoint, uint32_t foreground, uint32_t background, uint32_t bold) {
-    return codepoint << SC2_CELL_CODEPOINT_SHIFT | foreground << SC2_CELL_FOREGROUND_SHIFT
-         | background << SC2_CELL_BACKGROUND_SHIFT | bold << SC2_CELL_BOLD_SHIFT;
+enum {
+    STYLE_PLAIN, STYLE_BANNER, STYLE_HEADING, STYLE_STATUS, STYLE_TYPED, STYLE_CURSOR, STYLE_ITALIC,
+    STYLE_BOX, STYLE_LINE  // STYLE_LINE to STYLE_LINE + 7: one per accent color
+};
+
+// Built from the host's palette each tick, so they follow its colors.
+static void styles_build(sc2_screen *screen) {
+    const uint32_t *palette = screen->host_palette;
+    sc2_style *styles = screen->styles;
+    styles[STYLE_PLAIN]   = (sc2_style){.foreground = palette[5], .background = palette[0]};
+    styles[STYLE_BANNER]  = (sc2_style){.foreground = palette[13], .background = palette[0], .bold = 1};
+    styles[STYLE_HEADING] = (sc2_style){.foreground = palette[4], .background = palette[0]};
+    styles[STYLE_STATUS]  = (sc2_style){.foreground = palette[3], .background = palette[0]};
+    styles[STYLE_TYPED]   = (sc2_style){.foreground = palette[6], .background = palette[0]};
+    styles[STYLE_CURSOR]  = (sc2_style){.foreground = palette[6], .background = palette[0], .underline = 1};
+    styles[STYLE_ITALIC]  = (sc2_style){.foreground = palette[12], .background = palette[0], .italic = 1};
+    styles[STYLE_BOX]     = (sc2_style){.foreground = palette[5], .background = palette[1]};
+    for (int accent = 0; accent < 8; accent++)
+        styles[STYLE_LINE + accent] = (sc2_style){.foreground = palette[8 + accent], .background = palette[1]};
 }
 
-static void put(sc2_cell *cells, int width, int column, int row, const char *text, uint32_t foreground, uint32_t background) {
-    for (int index = 0; text[index] && column + index < width; index++)
-        cells[row * width + column + index] = cell((unsigned char)text[index], foreground, background, 0);
+static sc2_cell cell(uint32_t codepoint, uint32_t style) {
+    return codepoint << SC2_CELL_CODEPOINT_SHIFT | style << SC2_CELL_STYLE_SHIFT;
+}
+
+// Returns the column after the text.
+static int put(sc2_cell *cells, int width, int column, int row, const char *text, uint32_t style) {
+    for (; *text && column < width; text++, column++)
+        cells[row * width + column] = cell((unsigned char)*text, style);
+    return column;
+}
+
+// Each letter takes two cells: the wide cell, then its right half.
+static void put_wide(sc2_cell *cells, int width, int column, int row, const char *text, uint32_t style) {
+    for (; *text && column + 1 < width; text++, column += 2) {
+        cells[row * width + column] = cell((unsigned char)*text, style) | 1u << SC2_CELL_WIDE_SHIFT;
+        cells[row * width + column + 1] = cell(' ', style);
+    }
 }
 
 static int utf8_encode(uint32_t codepoint, uint8_t *bytes) {
@@ -29,9 +59,9 @@ static int utf8_encode(uint32_t codepoint, uint8_t *bytes) {
     return count;
 }
 
-static void fill(sc2_cell *cells, int count, uint32_t background) {
+static void fill(sc2_cell *cells, int count, uint32_t style) {
     for (int index = 0; index < count; index++)
-        cells[index] = cell(' ', 5, background, 0);
+        cells[index] = cell(' ', style);
 }
 
 int main(void) {
@@ -95,6 +125,7 @@ int main(void) {
                     *character = ' ';
         }
 
+        styles_build(screen);
         int columns = screen->columns, rows = screen->rows;
         int box_columns = columns > 4 ? columns - 4 : 0, box_rows = rows > 8 ? rows - 8 : 0;
         sc2_node *window = &screen->nodes[0], *box = &screen->nodes[1], *lines = &screen->nodes[2];
@@ -111,29 +142,32 @@ int main(void) {
                         .storage_offset = columns * rows};
 
         sc2_cell *cells = screen->cells;
-        fill(cells, columns * rows, 0);
-        for (int index = 0; index < 5 && index < columns; index++)
-            cells[index] = cell("sc*2 "[index], 13, 0, 1);
-        put(cells, columns, 5, 0, "hello: type, click, scroll the box", 4, 0);
+        fill(cells, columns * rows, STYLE_PLAIN);
+        int column = put(cells, columns, 0, 0, "sc*2 ", STYLE_BANNER);
+        put(cells, columns, column, 0, "hello: type, click, scroll the box", STYLE_HEADING);
+        column = put(cells, columns, 0, 1, "styles: ", STYLE_PLAIN);
+        column = put(cells, columns, column, 1, "italic ", STYLE_ITALIC);
+        column = put(cells, columns, column, 1, "bold ", STYLE_BANNER);
+        put_wide(cells, columns, column, 1, "wide", STYLE_HEADING);
 
         char status[128];
         snprintf(status, sizeof status, "mouse %d,%d (eighths) over node %d   left presses %d   wheel %d",
                  screen->mouse_column, screen->mouse_row, screen->mouse_node,
                  (screen->mouse_transitions[SC2_MOUSE_LEFT] + 1) / 2, screen->wheel_total);
-        put(cells, columns, 0, 2, status, 3, 0);
-        put(cells, columns, 0, 3, paste_line, 3, 0);
+        put(cells, columns, 0, 2, status, STYLE_STATUS);
+        put(cells, columns, 0, 3, paste_line, STYLE_STATUS);
         for (int index = 0; index < typed_length && index < columns; index++)
-            cells[4 * columns + index] = cell(typed[index], 6, 0, 0);
+            cells[4 * columns + index] = cell(typed[index], STYLE_TYPED);
         if (typed_length < columns)
-            cells[4 * columns + typed_length] = cell(' ', 6, 0, 0) | 1u << SC2_CELL_UNDERLINE_SHIFT;
+            cells[4 * columns + typed_length] = cell(' ', STYLE_CURSOR);
 
         sc2_cell *line_cells = &cells[lines->storage_offset];
-        fill(line_cells, box_columns * shown_lines, 1);
+        fill(line_cells, box_columns * shown_lines, STYLE_BOX);
         for (int row = 0; row < shown_lines && first_line + row < LINE_COUNT; row++) {
             int line_number = first_line + row;
             char line[64];
             snprintf(line, sizeof line, "line %d  The quick brown fox jumps over the lazy dog", line_number + 1);
-            put(line_cells, box_columns, 1, row, line, 8 + line_number % 8, 1);
+            put(line_cells, box_columns, 1, row, line, STYLE_LINE + line_number % 8);
         }
     }
     sc2_close(screen);

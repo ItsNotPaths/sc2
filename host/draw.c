@@ -15,8 +15,8 @@ typedef struct {
 
 // Everything one frame of draw.comp reads. Matches Frame in draw.comp.
 typedef struct {
-    VkDeviceAddress cells, coverage, glyph_table, miss_table, slot_frames, pixels;
-    uint32_t palette[16];
+    VkDeviceAddress cells, coverage, glyph_table, miss_table, slot_frames, pixels, styles;
+    uint32_t background;                       // RGBA, under every node
     uint32_t cell_width, cell_height;
     uint32_t underline_top, underline_thickness;
     uint32_t glyph_table_mask, miss_table_mask;
@@ -25,7 +25,7 @@ typedef struct {
     DrawNode nodes[NODE_COUNT];
 } DrawFrame;
 
-static_assert(offsetof(DrawFrame, nodes) == 144, "draw.comp reads the nodes at offset 144");
+static_assert(offsetof(DrawFrame, nodes) == 92, "draw.comp reads the nodes at offset 92");
 static_assert(sizeof(DrawNode) == 48, "draw.comp steps through the nodes 48 bytes at a time");
 
 static int32_t to_pixels(int32_t eighths, uint32_t cell_size) {
@@ -111,7 +111,9 @@ static bool frame_build(Host *host) {
     frame->miss_table = atlas->miss_table.address;
     frame->slot_frames = atlas->slot_frames.address;
     frame->pixels = drawing->pixels.address;
-    memcpy(frame->palette, host->settings.palette, sizeof frame->palette);
+    frame->styles = drawing->styles.address;
+    memcpy(drawing->styles.mapped, committed->styles, sizeof committed->styles);
+    frame->background = host->settings.palette[0];
     frame->cell_width = font->cell_width;
     frame->cell_height = font->cell_height;
     frame->underline_top = font->underline_top;
@@ -184,7 +186,8 @@ static bool frame_build_whole(Host *host) {
 }
 
 bool draw_open(Host *host) {
-    if (!buffer_create(&host->graphics, sizeof(DrawFrame), &host->drawing.frame))
+    if (!buffer_create(&host->graphics, sizeof(DrawFrame), &host->drawing.frame)
+        || !buffer_create(&host->graphics, sizeof host->committed->styles, &host->drawing.styles))
         return failed("cannot make the frame buffer");
     return true;
 }
@@ -192,6 +195,7 @@ bool draw_open(Host *host) {
 void draw_close(Host *host) {
     buffer_destroy(&host->graphics, &host->drawing.frame);
     buffer_destroy(&host->graphics, &host->drawing.cells);
+    buffer_destroy(&host->graphics, &host->drawing.styles);
     buffer_destroy(&host->graphics, &host->drawing.pixels);
 }
 
@@ -215,7 +219,6 @@ void draw_frame(Host *host) {
     graphics_wait(graphics);
     input_begin(host);
     settings_update(host);
-    memcpy(host->incoming->palette, host->settings.palette, sizeof host->settings.palette);
     input_end(host);
     if (!font_matches(&host->font, &host->settings, window->scale) && !font_reload(host))
         return;

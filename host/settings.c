@@ -1,3 +1,5 @@
+#include <string.h>
+
 #include "host.h"
 
 enum { FONT_SIZE_LOWEST = 6, FONT_SIZE_HIGHEST = 200 };  // a program's font_size is held to these
@@ -21,9 +23,10 @@ static const Settings defaults = {
 // changes at run time. A font or palette change shows on that draw.
 void settings_update(Host *host) {
     host->settings = defaults;
-    host->incoming->host_font_size = defaults.font_size;
     uint16_t asked = host->font_size_asked;
     if (asked)
         host->settings.font_size = asked < FONT_SIZE_LOWEST ? FONT_SIZE_LOWEST
                                  : asked > FONT_SIZE_HIGHEST ? FONT_SIZE_HIGHEST : asked;
+    host->incoming->host_font_size = defaults.font_size;
+    memcpy(host->incoming->host_palette, host->settings.palette, sizeof host->settings.palette);
 }

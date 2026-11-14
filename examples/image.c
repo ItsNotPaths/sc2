@@ -4,9 +4,10 @@
 
 enum { IMAGE_SIZE = 256, IMAGE_COLUMNS = 40, IMAGE_ROWS = 20 };
 enum { IMAGE = 1, TEXT = 2 };
+enum { STYLE_CAPTION = 1 };  // text with a clear background, so the image shows around it
 
-static sc2_cell cell(uint32_t codepoint, uint32_t foreground) {
-    return codepoint << SC2_CELL_CODEPOINT_SHIFT | foreground << SC2_CELL_FOREGROUND_SHIFT | 1u << SC2_CELL_CLEAR_SHIFT;
+static sc2_cell cell(uint32_t codepoint) {
+    return codepoint << SC2_CELL_CODEPOINT_SHIFT | (uint32_t)STYLE_CAPTION << SC2_CELL_STYLE_SHIFT;
 }
 
 // The mouse moves in eighths of a cell.
@@ -35,15 +36,16 @@ int main(void) {
         return 1;
     const char *caption = "drag me";
     for (int index = 0; index < IMAGE_COLUMNS * IMAGE_ROWS; index++)
-        screen->cells[index] = cell(' ', 7);
+        screen->cells[index] = cell(' ');
     for (int index = 0; caption[index]; index++)
-        screen->cells[IMAGE_ROWS / 2 * IMAGE_COLUMNS + (IMAGE_COLUMNS - 7) / 2 + index] = cell((unsigned char)caption[index], 7);
+        screen->cells[IMAGE_ROWS / 2 * IMAGE_COLUMNS + (IMAGE_COLUMNS - 7) / 2 + index] = cell((unsigned char)caption[index]);
 
     int image_column = 2, image_row = 1;
     int grab_column = 0, grab_row = 0;  // from the image's top left to the mouse
     int dragging = 0;
     uint8_t left_transitions = screen->mouse_transitions[SC2_MOUSE_LEFT];
     for (int phase = 0; sc2_tick(screen); phase++) {
+        screen->styles[STYLE_CAPTION] = (sc2_style){.foreground = screen->host_palette[7], .bold = 1};
         int mouse_column = cell_from_eighths(screen->mouse_column);
         int mouse_row = cell_from_eighths(screen->mouse_row);
         uint8_t transitions = screen->mouse_transitions[SC2_MOUSE_LEFT];

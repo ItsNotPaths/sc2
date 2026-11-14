@@ -7,11 +7,11 @@
 
 #include "sc2.h"
 
-// In sc2_screen, fields from key_transitions to nodes are input, written through incoming.
-// From nodes to the end they are the program's, committed at each tick.
+// In sc2_screen, fields from key_transitions to styles are input, written through incoming.
+// From styles to the end they are the program's, committed at each tick.
 #define INPUT_START  offsetof(sc2_screen, key_transitions)
-#define INPUT_SIZE   (offsetof(sc2_screen, nodes) - INPUT_START)
-#define OUTPUT_START offsetof(sc2_screen, nodes)
+#define INPUT_SIZE   (offsetof(sc2_screen, styles) - INPUT_START)
+#define OUTPUT_START offsetof(sc2_screen, styles)
 #define OUTPUT_SIZE  (sizeof(sc2_screen) - OUTPUT_START)
 #define NODE_COUNT   ((int)(sizeof(((sc2_screen *)0)->nodes) / sizeof(sc2_node)))
 

@@ -17,16 +17,23 @@ enum {
     SC2_PIXEL_CAPACITY = 1073741824    // reserved address space; untouched pages cost nothing
 };
 
-typedef uint32_t sc2_cell;  // clear:1 | underline:1 | bold:1 | background:4 | foreground:4 | codepoint:21
+// A codepoint drawn in one of the program's styles. The cell after a wide cell is its right half:
+// the wide glyph spans both in the wide cell's style, and the right half's own bits are not drawn.
+typedef uint32_t sc2_cell;  // wide:1 | style:10 | codepoint:21
 
 enum {
-    SC2_CELL_CODEPOINT_SHIFT   = 0,
-    SC2_CELL_FOREGROUND_SHIFT  = 21,
-    SC2_CELL_BACKGROUND_SHIFT  = 25,
-    SC2_CELL_BOLD_SHIFT        = 29,
-    SC2_CELL_UNDERLINE_SHIFT   = 30,
-    SC2_CELL_CLEAR_SHIFT       = 31
+    SC2_CELL_CODEPOINT_SHIFT = 0,
+    SC2_CELL_STYLE_SHIFT     = 21,
+    SC2_CELL_WIDE_SHIFT      = 31
 };
+
+enum { SC2_STYLE_CAPACITY = 1024 };
+
+// Colors are RGBA, 0xRRGGBBAA. A background with alpha 0 shows whatever is under the cell.
+typedef struct {
+    uint32_t foreground, background;
+    uint8_t  bold, italic, underline;
+} sc2_style;
 
 enum { SC2_NODE_EMPTY, SC2_NODE_CELLS, SC2_NODE_PIXELS };
 enum { SC2_PASTE_CLIPBOARD, SC2_PASTE_DROP };
@@ -66,7 +73,7 @@ typedef struct {
     uint32_t text[SC2_TEXT_CAPACITY];
     uint8_t  key_transitions[512];           // by scancode; odd means held
     uint32_t composition[32];                // input method preview
-    uint32_t palette[16];                    // RGBA, base16 order
+    uint32_t host_palette[16];               // the host's colors, RGBA, base16 order, to build styles from
     uint8_t  mouse_transitions[8];
     uint32_t text_write_index;
     uint32_t paste_sequence;                 // bumped when a paste or drop is complete
@@ -84,6 +91,7 @@ typedef struct {
     uint8_t  closed;
 
     // written by program, copied out at each tick
+    sc2_style styles[SC2_STYLE_CAPACITY];
     sc2_node nodes[255];
     char     title[256];                     // UTF-8, ends at the first 0; empty shows the file name
     char     app_id[64];                     // for window rules; empty sets none

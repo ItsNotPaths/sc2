@@ -28,6 +28,15 @@ enum {  // powers of two, so draw.comp wraps with a mask
     MISS_TABLE_CAPACITY  = 1024,
 };
 
+// An atlas key: a codepoint and how it is drawn; 0 marks an empty entry. draw.comp builds the same keys.
+enum {
+    GLYPH_CODEPOINT_MASK = (1u << 21) - 1,
+    GLYPH_BOLD           = 1u << 21,
+    GLYPH_ITALIC         = 1u << 22,
+    GLYPH_LEFT_HALF      = 1u << 23,  // of a wide glyph
+    GLYPH_RIGHT_HALF     = 1u << 24,
+};
+
 typedef struct {
     struct wl_compositor                  *compositor;
     struct wl_seat                        *seat;
@@ -119,7 +128,7 @@ typedef struct {
 typedef struct {
     char     font_path[256];
     char     cursor_theme[64];                 // only without cursor-shape-v1; "" is the default theme
-    uint32_t palette[16];                      // RGBA, base16 order
+    uint32_t palette[16];                      // RGBA, base16 order; the window background and host_palette
     uint32_t font_size;                        // cell height in pixels at scale 1
     uint32_t cursor_size;                      // pixels
     uint16_t window_columns, window_rows;      // the window's size until the compositor picks one
@@ -188,6 +197,7 @@ typedef struct {
 typedef struct {
     Buffer   frame;                            // DrawFrame, see draw.c
     Buffer   cells;                            // committed cells, packed per node
+    Buffer   styles;                           // committed styles
     Buffer   pixels;                           // pixels from 0 to the last byte drawn: imported, or a copy
     CopiedImage copied_images[NODE_COUNT];  // copy only; all zero after the copy grows
     uint32_t drawn_sequence;                   // commit_sequence of the commit last drawn
@@ -322,7 +332,7 @@ void settings_update(Host *host);
 bool font_load(Font *font, const Settings *settings, uint32_t scale);
 bool font_matches(const Font *font, const Settings *settings, uint32_t scale);
 void font_close(Font *font);
-void font_draw(const Font *font, uint32_t codepoint, bool bold, uint8_t *coverage);
+void font_draw(const Font *font, uint32_t key, uint8_t *coverage);
 
 // flatten.c
 void     flatten(const sc2_node nodes[NODE_COUNT], Rectangle window, Placement placements[NODE_COUNT]);

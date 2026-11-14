@@ -121,6 +121,11 @@ it cannot be tested on hedl.
   reloads the font and empties the atlas on the next draw. Scale tested by flipping 1x and 1.5x
   in a scratch copy (hedl sends 1x); font size under sc2host: 40 gives 95x25 where 20 gives
   190x50. `hello` zooms with Ctrl+=, Ctrl+- and Ctrl+0.
+- **Styles** (settled 2026-11-14): a cell is `wide:1 | style:10 | codepoint:21`, and the program
+  owns `styles[1024]` (RGBA foreground and background, bold, italic, underline). Cells stay
+  32 bits; the 12 KB table is copied only when it changes. Alpha 0 replaced the `clear` bit.
+  The host's 16 colors became the `host_palette` input, for programs that follow its theme.
+  Italic is FreeType's synthetic oblique; a wide glyph is two atlas slots, one per half.
 - **Settings** are one struct of defaults in `host/settings.c`: font, size, palette, first
   window size, rows per wheel notch, and the cursor theme and size for the xcursor fallback.
   sc2host reads no files and no environment (the fallback no longer reads `XCURSOR_*`).

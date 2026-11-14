@@ -220,10 +220,8 @@ int main(int argument_count, char **arguments) {
     const char *slash = strrchr(arguments[1], '/');
     host.window.scale = 120;
     bool started = shared_create(&host);
-    if (started) {
+    if (started)
         settings_update(&host);
-        memcpy(host.incoming->palette, host.settings.palette, sizeof host.settings.palette);
-    }
     started = started
         && events_create(&host)
         && wayland_connect(&host)

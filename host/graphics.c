@@ -113,7 +113,7 @@ static bool device_create(Graphics *graphics) {
     return true;
 }
 
-// 8-bit UNORM: palette colors are already sRGB, so they reach the screen unchanged.
+// 8-bit UNORM: style colors are already sRGB, so they reach the screen unchanged.
 static bool format_choose(Graphics *graphics) {
     VkSurfaceFormatKHR formats[64];
     uint32_t format_count = 64;

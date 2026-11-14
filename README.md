@@ -44,10 +44,11 @@ int main(void) {
         return 1;
     const char *text = "hello";
     while (sc2_tick(screen)) {
+        screen->styles[1] = (sc2_style){.foreground = screen->host_palette[5], .background = screen->host_palette[0]};
         screen->nodes[0] = (sc2_node){.kind = SC2_NODE_CELLS,
                                       .content_width = screen->columns, .content_height = screen->rows};
         for (int index = 0; text[index]; index++)
-            screen->cells[index] = (sc2_cell)text[index] << SC2_CELL_CODEPOINT_SHIFT | 7 << SC2_CELL_FOREGROUND_SHIFT;
+            screen->cells[index] = (sc2_cell)text[index] << SC2_CELL_CODEPOINT_SHIFT | 1u << SC2_CELL_STYLE_SHIFT;
     }
     sc2_close(screen);
     return 0;

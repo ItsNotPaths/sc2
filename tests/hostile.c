@@ -37,8 +37,8 @@ int main(int argument_count, char **arguments) {
     screen->idle_tick_rate = 240;  // so every mode reaches its last tick without input
     for (int tick = 0; sc2_tick(screen) && tick < RUN_TICKS; tick++) {
         if (strcmp(mode, "garbage") == 0) {
-            uint8_t *owned = (uint8_t *)screen + offsetof(sc2_screen, nodes);
-            for (size_t index = 0; index < sizeof(sc2_screen) - offsetof(sc2_screen, nodes); index++)
+            uint8_t *owned = (uint8_t *)screen + offsetof(sc2_screen, styles);
+            for (size_t index = 0; index < sizeof(sc2_screen) - offsetof(sc2_screen, styles); index++)
                 owned[index] = (uint8_t)random_next();
             for (int index = 0; index < GARBAGE_CELLS; index++)
                 screen->cells[index] = random_next();

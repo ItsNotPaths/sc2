@@ -11,7 +11,7 @@ The host:
 1. Creates a memfd of `sizeof(sc2_shared)` bytes, seals it against shrinking and growing,
    maps it, and writes `SC2_MAGIC` and `SC2_VERSION` into the header. Untouched pages cost
    nothing, so the size is mostly address space.
-2. Writes the first input into `incoming`: at least `columns`, `rows`, `palette`, and
+2. Writes the first input into `incoming`: at least `columns`, `rows`, `host_palette`, and
    `mouse_node` set to `SC2_MOUSE_OUTSIDE`.
 3. Creates two eventfds: one the program writes after each commit, one the host writes after
    input changes.
@@ -76,6 +76,14 @@ The program picks its text size with `font_size`: the cell height in pixels at s
 the host's own size, which the host reports in `host_font_size`. The host multiplies it by the
 output's scale, works out how many cells fit, and reports `columns` and `rows`. A program that
 zooms on Ctrl+= writes a new `font_size` and lays out in the grid that comes back.
+
+## Styles
+
+A cell names one of the program's `styles`: a foreground and a background in RGBA, with bold,
+italic and underline. A background with alpha 0 shows whatever is under the cell. A wide cell
+draws its glyph across itself and the next cell, in its own style; the next cell's own bits are
+not drawn. The host reports its own colors in `host_palette`, in base16 order, for a program
+that wants to follow the host's theme.
 
 ## Closing
 

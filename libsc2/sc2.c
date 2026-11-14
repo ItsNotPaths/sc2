@@ -13,8 +13,9 @@
 static_assert(offsetof(sc2_screen, pixels) == 0, "the host imports pixels in place, from a page");
 static_assert(offsetof(sc2_shared, screen) % 4096 == 0, "the host imports pixels in place, from a page");
 static_assert(sizeof(sc2_node) == 24, "bindings read the sc2_node layout from sc2.h");
+static_assert(sizeof(sc2_style) == 12, "bindings and draw.comp read the sc2_style layout from sc2.h");
 static_assert(offsetof(sc2_screen, text) + sizeof(uint32_t[SC2_TEXT_CAPACITY]) == offsetof(sc2_screen, key_transitions),
-              "receive copies the ring, then every field from key_transitions to nodes");
+              "receive copies the ring, then every field from key_transitions to styles");
 
 enum { DEFAULT_TICK_RATE = 240 };
 
