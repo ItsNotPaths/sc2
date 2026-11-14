@@ -8,9 +8,9 @@ and `host/` (otkhost) is one host. Anyone can write another host from these two 
 
 The host:
 
-1. Creates a memfd of `sizeof(otk_shared)` bytes, maps it, and writes `OTK_MAGIC` and
-   `OTK_VERSION` into the header. Untouched pages cost nothing, so the size is mostly address
-   space.
+1. Creates a memfd of `sizeof(otk_shared)` bytes, seals it against shrinking and growing,
+   maps it, and writes `OTK_MAGIC` and `OTK_VERSION` into the header. Untouched pages cost
+   nothing, so the size is mostly address space.
 2. Writes the first input into `incoming`: at least `columns`, `rows`, `palette`, and
    `mouse_node` set to `OTK_MOUSE_OUTSIDE`.
 3. Creates two eventfds: one the program writes after each commit, one the host writes after
@@ -64,6 +64,12 @@ eventfd.
   `paste_source`, then bumps `paste_sequence`. Every request and every drop gets exactly one
   answer, and `paste_length` 0 means it failed.
 
+## Title and app_id
+
+`title` and `app_id` are UTF-8 and end at the first 0 byte. The host applies them after each
+commit, so a program can change its title while it runs. An empty `title` leaves the naming to
+the host; otkhost shows the program's file name.
+
 ## Closing
 
 The host sets `closed` in `incoming`. `otk_tick` then returns 0 and the program exits. The
@@ -71,6 +77,22 @@ host learns of the exit from the process itself; otkhost watches a pidfd.
 
 The contract does not tell a program that its host died. otkhost sets `PR_SET_PDEATHSIG`, so
 the program gets `SIGTERM` when otkhost exits.
+
+## What a host must not trust
+
+Everything the program writes may be wrong, by accident or on purpose. A host keeps working
+whatever the program does:
+
+- It seals the memfd, so the program cannot shrink the memory under the host's reads.
+- It reads only the cells and bytes the node rules allow (`libotk/contract.h`), clamps
+  `copy_length`, ends `title` and `app_id` itself, and replaces bytes that are not valid UTF-8.
+- It gives up on a read when the program keeps `commit_sequence` odd, and tries again at the
+  next commit. otkhost waits 100 ms.
+- It bounds its own work per frame. otkhost packs at most `OTK_CELL_CAPACITY` cells, however
+  many nodes share them.
+- It kills a program that has not exited some time after `closed`. otkhost waits 2 s.
+
+`tests/hostile.c` breaks the contract on purpose, and `tests/run.sh` runs it under otkhost.
 
 ## What the contract leaves to the host
 

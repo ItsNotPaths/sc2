@@ -1,6 +1,5 @@
 #include <errno.h>
 #include <fcntl.h>
-#include <sched.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <unistd.h>
@@ -166,23 +165,19 @@ static const struct wl_data_source_listener source_listener = {
 };
 
 // Takes the program's copy from one whole commit into offered. Sends still running are cut off
-// first, since their bytes are about to be gone.
-static uint8_t copy_take(Host *host) {
+// first, since their bytes are about to be gone. False when no whole commit could be read.
+static bool copy_take(Host *host, uint8_t *copy_data) {
     Clipboard *clipboard = &host->clipboard;
     const otk_screen *committed = host->committed;
-    const uint32_t *sequence = &host->shared->header.commit_sequence;
     while (clipboard->send_count)
         send_close(clipboard, 0);
-    for (;;) {
-        uint32_t begun = sequence_read_begin(sequence);
-        uint8_t copy_data = committed->copy_data;
-        clipboard->copy_sequence = committed->copy_sequence;
+    CommitRead read = commit_read_begin(host);
+    do {
+        *copy_data = committed->copy_data;
         clipboard->copy_length = committed->copy_length < OTK_COPY_CAPACITY ? committed->copy_length : OTK_COPY_CAPACITY;
         memcpy(clipboard->offered, committed->copy, clipboard->copy_length);
-        if (sequence_read_valid(sequence, begun))
-            return copy_data;
-        sched_yield();
-    }
+    } while (commit_read_retry(host, &read));
+    return read.whole;
 }
 
 // copy_data 0 empties the clipboard.
@@ -338,27 +333,18 @@ void clipboard_detach(Host *host) {
 }
 
 // Runs after each commit, inside an input section. Without a data device, a paste is answered empty.
-void clipboard_serve(Host *host) {
+void clipboard_serve(Host *host, const Commit *commit) {
     Clipboard *clipboard = &host->clipboard;
-    const otk_screen *committed = host->committed;
-    const uint32_t *sequence = &host->shared->header.commit_sequence;
-    uint32_t paste_request, copy_sequence;
-    uint8_t paste_request_data;
-    for (;;) {
-        uint32_t begun = sequence_read_begin(sequence);
-        paste_request = committed->paste_request;
-        paste_request_data = committed->paste_request_data;
-        copy_sequence = committed->copy_sequence;
-        if (sequence_read_valid(sequence, begun))
-            break;
-        sched_yield();
+    if (commit->paste_request != clipboard->paste_request) {
+        clipboard->paste_request = commit->paste_request;
+        paste_start(host, commit->paste_request_data);
     }
-    if (paste_request != clipboard->paste_request) {
-        clipboard->paste_request = paste_request;
-        paste_start(host, paste_request_data);
+    if (commit->copy_sequence != clipboard->copy_sequence && clipboard->data_device) {
+        clipboard->copy_sequence = commit->copy_sequence;
+        uint8_t copy_data;
+        if (copy_take(host, &copy_data))
+            copy_offer(host, copy_data);
     }
-    if (copy_sequence != clipboard->copy_sequence && clipboard->data_device)
-        copy_offer(host, copy_take(host));
 }
 
 size_t clipboard_poll(const Host *host, struct pollfd *waiting) {

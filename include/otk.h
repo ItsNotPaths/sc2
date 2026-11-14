@@ -84,6 +84,8 @@ typedef struct {
 
     // written by program, copied out at each tick
     otk_node nodes[255];
+    char     title[256];                     // UTF-8, ends at the first 0; empty shows the file name
+    char     app_id[64];                     // for window rules; empty sets none
     uint32_t paste_request;                  // bump to ask for the clipboard
     uint32_t copy_sequence;                  // bump after writing copy
     uint32_t copy_length;

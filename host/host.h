@@ -4,6 +4,7 @@
 #include <poll.h>
 #include <stdint.h>
 #include <sys/types.h>
+#include <time.h>
 #define VK_USE_PLATFORM_WAYLAND_KHR
 #include <vulkan/vulkan.h>
 #include <wayland-client.h>
@@ -48,6 +49,8 @@ typedef struct {
     uint32_t surface_width, surface_height;    // the compositor's units
     uint32_t width, height;                    // pixels: the surface size times the scale
     uint32_t requested_width, requested_height;  // from the last toplevel configure; 0 lets us choose
+    const char *file_name;                     // of the program; the title while the program sets none
+    char     title[256], app_id[64];           // as last sent to the compositor
     uint32_t scale;                            // 120ths, from the compositor; font.scale is the one drawn
     bool     configured;                       // the first configure is acknowledged
     bool     frame_pending;                    // a frame callback is outstanding
@@ -192,6 +195,18 @@ typedef struct {
 } Drawing;
 
 
+typedef struct {
+    char     title[256], app_id[64];           // terminated, not yet checked as UTF-8
+    uint32_t paste_request, copy_sequence;
+    uint8_t  paste_request_data;
+} Commit;  // the small fields of one whole commit that the host acts on
+
+typedef struct {
+    uint32_t begun;                            // commit_sequence when this try began
+    uint64_t deadline;                         // CLOCK_MONOTONIC nanoseconds; the read gives up after it
+    bool     whole;                            // the last try saw one whole commit
+} CommitRead;
+
 typedef struct { int32_t left, top, right, bottom; } Rectangle;  // eighths of a cell, screen space
 
 typedef struct {
@@ -239,6 +254,12 @@ static inline int16_t fixed_to_eighths(wl_fixed_t position, uint32_t cell_size, 
     return floor_divide((int64_t)position * 8 * scale, (int64_t)cell_size * 256 * 120);
 }
 
+static inline uint64_t now(void) {
+    struct timespec time;
+    clock_gettime(CLOCK_MONOTONIC, &time);
+    return (uint64_t)time.tv_sec * 1000000000 + time.tv_nsec;
+}
+
 static inline struct timespec from_nanoseconds(uint64_t nanoseconds) {
     return (struct timespec){.tv_sec = nanoseconds / 1000000000, .tv_nsec = nanoseconds % 1000000000};
 }
@@ -250,9 +271,11 @@ static inline void transition_set(uint8_t *transitions, bool held) {
 }
 
 // main.c
-bool failed(const char *reason);
-void input_begin(Host *host);
-void input_end(Host *host);
+bool       failed(const char *reason);
+void       input_begin(Host *host);
+void       input_end(Host *host);
+CommitRead commit_read_begin(const Host *host);
+bool       commit_read_retry(const Host *host, CommitRead *read);
 
 // wayland.c
 bool wayland_connect(Host *host);
@@ -263,6 +286,7 @@ bool window_open(Host *host, const char *title);
 void window_close(Host *host);
 void window_request_frame(Host *host);
 void window_resize(Host *host);
+void window_name(Host *host, const char *title, const char *app_id);
 
 // scale.c
 void scale_attach(Host *host);
@@ -285,7 +309,7 @@ void text_input_attach(Host *host);
 // clipboard.c
 void   clipboard_attach(Host *host);
 void   clipboard_detach(Host *host);
-void   clipboard_serve(Host *host);
+void   clipboard_serve(Host *host, const Commit *commit);
 size_t clipboard_poll(const Host *host, struct pollfd *waiting);
 void   clipboard_transfer(Host *host);
 

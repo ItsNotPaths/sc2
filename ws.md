@@ -129,11 +129,15 @@ it cannot be tested on hedl.
 
 ## Workstream H: program metadata
 
-Open. The host now owns the window, so a program has no way to name itself: `otk_open` takes no
-title, and otkhost titles the window with the program's file name. A host also wants an app_id,
-maybe a size request and see-through areas. The likely shape is a few fields the program
-writes, read from `committed` like everything else; the title could then change at run time
-(a file browser showing its path). Not decided: which fields earn a place in `otk_screen`.
+Built 2026-11-14: `title` and `app_id`, written by the program and applied after each commit.
+An empty title shows the program's file name. Size requests and see-through areas are left to
+hosts that want them (patches); otkhost is one program, one window.
+
+Hardened the same day against programs that break the contract (`include/contract.md`, "What
+a host must not trust"): sealed memfd, commit reads that give up after 100 ms, at most
+`OTK_CELL_CAPACITY` packed cells per frame, strict UTF-8 for names, and a 2 s grace after
+`closed` before the program is killed. A lost compositor makes otkhost exit 1.
+`tests/hostile.c` covers the first three under a Wayland session.
 
 ## Workstream C: core
 

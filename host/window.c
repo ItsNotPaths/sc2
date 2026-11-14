@@ -1,3 +1,6 @@
+#include <stdio.h>
+#include <string.h>
+
 #include "host.h"
 
 static void window_manager_ping(void *, struct xdg_wm_base *window_manager, uint32_t serial) {
@@ -57,7 +60,7 @@ static const struct wl_callback_listener frame_listener = {
 };
 
 // Waits for the first configure: the window has no size before it, and may not present.
-bool window_open(Host *host, const char *title) {
+bool window_open(Host *host, const char *file_name) {
     Globals *globals = &host->globals;
     Window *window = &host->window;
     window->surface_width = host->settings.window_columns * host->font.cell_width;
@@ -69,7 +72,8 @@ bool window_open(Host *host, const char *title) {
     xdg_surface_add_listener(window->shell_surface, &shell_surface_listener, host);
     window->toplevel = xdg_surface_get_toplevel(window->shell_surface);
     xdg_toplevel_add_listener(window->toplevel, &toplevel_listener, host);
-    xdg_toplevel_set_title(window->toplevel, title ? title : "");
+    window->file_name = file_name;
+    window_name(host, "", "");
     scale_attach(host);
     wl_surface_commit(window->surface);
 
@@ -101,6 +105,60 @@ void window_resize(Host *host) {
         wp_viewport_set_destination(window->viewport, window->surface_width, window->surface_height);
     host->incoming->columns = window->width / host->font.cell_width;
     host->incoming->rows = window->height / host->font.cell_height;
+}
+
+// Bytes in the valid UTF-8 sequence at text (RFC 3629: no overlong forms, no surrogates,
+// nothing past U+10FFFF), or 0. A 0 byte fails every check, so it never reads past the end.
+static size_t utf8_length(const uint8_t *text) {
+    uint8_t lead = text[0], low = 0x80, high = 0xBF;
+    size_t length;
+    if (lead < 0x80)
+        return 1;
+    if (lead >= 0xC2 && lead <= 0xDF)
+        length = 2;
+    else if (lead >= 0xE0 && lead <= 0xEF)
+        length = 3, low = lead == 0xE0 ? 0xA0 : 0x80, high = lead == 0xED ? 0x9F : 0xBF;
+    else if (lead >= 0xF0 && lead <= 0xF4)
+        length = 4, low = lead == 0xF0 ? 0x90 : 0x80, high = lead == 0xF4 ? 0x8F : 0xBF;
+    else
+        return 0;
+    if (text[1] < low || text[1] > high)
+        return 0;
+    for (size_t index = 2; index < length; index++)
+        if (text[index] < 0x80 || text[index] > 0xBF)
+            return 0;
+    return length;
+}
+
+// Ends text within size, and replaces each byte that does not start valid UTF-8 with '?',
+// since the compositor drops a client that sends it bad UTF-8.
+static void utf8_mend(char *text, size_t size) {
+    text[size - 1] = 0;
+    for (size_t index = 0; text[index];) {
+        size_t length = utf8_length((const uint8_t *)&text[index]);
+        if (length)
+            index += length;
+        else
+            text[index++] = '?';
+    }
+}
+
+// Names the window as the program asks. An empty title shows the program's file name.
+void window_name(Host *host, const char *title, const char *app_id) {
+    Window *window = &host->window;
+    char shown_title[sizeof window->title], shown_app_id[sizeof window->app_id];
+    snprintf(shown_title, sizeof shown_title, "%s", title[0] ? title : window->file_name);
+    snprintf(shown_app_id, sizeof shown_app_id, "%s", app_id);
+    utf8_mend(shown_title, sizeof shown_title);
+    utf8_mend(shown_app_id, sizeof shown_app_id);
+    if (strcmp(shown_title, window->title) != 0) {
+        strcpy(window->title, shown_title);
+        xdg_toplevel_set_title(window->toplevel, window->title);
+    }
+    if (strcmp(shown_app_id, window->app_id) != 0) {
+        strcpy(window->app_id, shown_app_id);
+        xdg_toplevel_set_app_id(window->toplevel, window->app_id);
+    }
 }
 
 // The compositor answers when it wants the next frame. The next present carries the request.

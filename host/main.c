@@ -1,5 +1,6 @@
 // otkhost PROGRAM [ARGUMENT...]: runs one OTK program and draws it in a Wayland window.
 #include <fcntl.h>
+#include <sched.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,6 +14,11 @@
 #include <unistd.h>
 
 #include "host.h"
+
+enum {
+    COMMIT_READ_PATIENCE = 100000000,  // nanoseconds a program may keep commit_sequence odd
+    CLOSE_PATIENCE       = 2000,       // milliseconds a program may take to exit once closed
+};
 
 static Host host;
 
@@ -36,9 +42,45 @@ void input_end(Host *host) {
     write(host->input_event, &one, sizeof one);
 }
 
+CommitRead commit_read_begin(const Host *host) {
+    return (CommitRead){
+        .begun = sequence_read_begin(&host->shared->header.commit_sequence),
+        .deadline = now() + COMMIT_READ_PATIENCE,
+    };
+}
+
+// After a try at reading committed: false once a try saw one whole commit, or once the program
+// has kept commit_sequence odd past the patience, so it cannot hang the host; true to try again.
+bool commit_read_retry(const Host *host, CommitRead *read) {
+    const uint32_t *sequence = &host->shared->header.commit_sequence;
+    read->whole = sequence_read_valid(sequence, read->begun);
+    if (read->whole || now() > read->deadline)
+        return false;
+    sched_yield();
+    read->begun = sequence_read_begin(sequence);
+    return true;
+}
+
+static bool commit_take(Host *host, Commit *commit) {
+    const otk_screen *committed = host->committed;
+    CommitRead read = commit_read_begin(host);
+    do {
+        memcpy(commit->title, committed->title, sizeof commit->title);
+        memcpy(commit->app_id, committed->app_id, sizeof commit->app_id);
+        commit->paste_request = committed->paste_request;
+        commit->paste_request_data = committed->paste_request_data;
+        commit->copy_sequence = committed->copy_sequence;
+    } while (commit_read_retry(host, &read));
+    commit->title[sizeof commit->title - 1] = 0;
+    commit->app_id[sizeof commit->app_id - 1] = 0;
+    return read.whole;
+}
+
+// Sealed, so the program cannot shrink the memory under the host's reads.
 static bool shared_create(Host *host) {
-    host->memory_file = memfd_create("otk-shared", MFD_CLOEXEC);
-    if (host->memory_file < 0 || ftruncate(host->memory_file, sizeof(otk_shared)) < 0)
+    host->memory_file = memfd_create("otk-shared", MFD_CLOEXEC | MFD_ALLOW_SEALING);
+    if (host->memory_file < 0 || ftruncate(host->memory_file, sizeof(otk_shared)) < 0
+        || fcntl(host->memory_file, F_ADD_SEALS, F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_SEAL) < 0)
         return failed("cannot make the shared memory");
     void *address = mmap(nullptr, sizeof(otk_shared), PROT_READ | PROT_WRITE, MAP_SHARED, host->memory_file, 0);
     if (address == MAP_FAILED)
@@ -90,7 +132,8 @@ static bool program_start(Host *host, char **command) {
 // Vulkan's WSI reads the display too, so events may already sit in the queue: dispatch them
 // before polling, and read through prepare/read so neither reader steals the other's events.
 // Wayland callbacks run inside an input section, so they write incoming freely.
-static void host_run(Host *host) {
+// Runs until the program exits or is closed; false when the compositor was lost.
+static bool host_run(Host *host) {
     struct wl_display *display = host->display;
     uint64_t count;
     for (;;) {
@@ -117,18 +160,22 @@ static void host_run(Host *host) {
             wl_display_cancel_read(display);
 
         input_begin(host);
-        if (display_lost || wl_display_dispatch_pending(display) < 0) {
-            display_lost = true;
+        display_lost |= wl_display_dispatch_pending(display) < 0;
+        if (display_lost)
             host->incoming->closed = 1;
+        Commit commit;
+        if (waiting[1].revents && read(host->commit_event, &count, sizeof count) > 0 && commit_take(host, &commit)) {
+            clipboard_serve(host, &commit);
+            window_name(host, commit.title, commit.app_id);
         }
-        if (waiting[1].revents && read(host->commit_event, &count, sizeof count) > 0)
-            clipboard_serve(host);
         if (waiting[2].revents && read(host->repeat_timer, &count, sizeof count) > 0)
             keyboard_repeat(host);
         clipboard_transfer(host);
         input_end(host);
-        if (waiting[3].revents || display_lost)
-            return;
+        if (display_lost)
+            return failed("lost the compositor");
+        if (waiting[3].revents || host->incoming->closed)
+            return true;
     }
 }
 
@@ -144,7 +191,8 @@ static void host_close(Host *host) {
         munmap(host->shared, sizeof(otk_shared));
 }
 
-// The program learns of a close through closed; its exit ends the host.
+// The program learns of a close through closed. One that has not exited after the patience is killed,
+// so a program cannot keep its window from closing.
 static int program_wait(Host *host) {
     int status = 0;
     if (host->program_id <= 0)
@@ -152,6 +200,9 @@ static int program_wait(Host *host) {
     input_begin(host);
     host->incoming->closed = 1;
     input_end(host);
+    struct pollfd exited = {.fd = host->program_exit, .events = POLLIN};
+    if (poll(&exited, 1, CLOSE_PATIENCE) <= 0)
+        kill(host->program_id, SIGKILL);
     waitpid(host->program_id, &status, 0);
     if (WIFEXITED(status) && WEXITSTATUS(status) == 127)
         failed("cannot run the program");
@@ -180,9 +231,8 @@ int main(int argument_count, char **arguments) {
         && graphics_open(&host)
         && atlas_open(&host)
         && draw_open(&host);
-    if (started)
-        host_run(&host);
+    bool kept_display = started && host_run(&host);
     int status = program_wait(&host);
     host_close(&host);
-    return started ? status : 1;
+    return kept_display ? status : 1;
 }

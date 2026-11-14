@@ -1,4 +1,3 @@
-#include <sched.h>
 #include <stddef.h>
 #include <string.h>
 
@@ -31,6 +30,13 @@ static_assert(sizeof(DrawNode) == 48, "draw.comp steps through the nodes 48 byte
 
 static int32_t to_pixels(int32_t eighths, uint32_t cell_size) {
     return (int32_t)floor_divide((int64_t)eighths * cell_size, 8);
+}
+
+// A node's cells to pack, or none once the frame holds OTK_CELL_CAPACITY: a program cannot make
+// the host pack more than its whole cell area, however many nodes share it.
+static uint32_t cells_to_pack(const otk_node *node, uint64_t packed) {
+    uint32_t count = node_cell_count(node);
+    return packed + count > OTK_CELL_CAPACITY ? 0 : count;
 }
 
 static bool visible(Rectangle clip) {
@@ -88,7 +94,7 @@ static bool frame_build(Host *host) {
         if (!visible(placements[index].clip))
             continue;
         node_count = index + 1;
-        cell_count += node_cell_count(node);
+        cell_count += cells_to_pack(node, cell_count);
         uint32_t pixel_size = node_pixel_size(node);
         if (pixel_size && node->storage_offset + pixel_size > pixel_end)
             pixel_end = node->storage_offset + pixel_size;
@@ -121,7 +127,7 @@ static bool frame_build(Host *host) {
         const otk_node *node = &committed->nodes[index];
         const Placement *placement = &placements[index];
         Rectangle clip = placement->clip;
-        uint32_t count = visible(clip) ? node_cell_count(node) : 0;
+        uint32_t count = visible(clip) ? cells_to_pack(node, packed) : 0;
         uint32_t pixel_size = visible(clip) ? node_pixel_size(node) : 0;
         Rectangle area = placement->area;
         int32_t content_left = pixel_size ? area.left : placement->content_left;  // images ignore scroll
@@ -165,19 +171,16 @@ static bool font_reload(Host *host) {
     return loaded;
 }
 
-// Builds from one whole commit: a commit that lands meanwhile means building again.
+// Builds from one whole commit: a commit that lands meanwhile means building again. A commit
+// that never ends is not tried again until the sequence moves.
 static bool frame_build_whole(Host *host) {
-    const uint32_t *sequence = &host->shared->header.commit_sequence;
-    for (;;) {
-        uint32_t begun = sequence_read_begin(sequence);
-        if (begun % 2 == 0 && !frame_build(host))
-            return false;
-        if (sequence_read_valid(sequence, begun)) {
-            host->drawing.drawn_sequence = begun;
-            return true;
-        }
-        sched_yield();
-    }
+    CommitRead read = commit_read_begin(host);
+    bool built;
+    do
+        built = frame_build(host);
+    while (built && commit_read_retry(host, &read));
+    host->drawing.drawn_sequence = read.begun;
+    return built && read.whole;
 }
 
 bool draw_open(Host *host) {

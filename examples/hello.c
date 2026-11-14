@@ -37,6 +37,7 @@ int main(void) {
     otk_screen *screen = otk_open();
     if (!screen)
         return 1;
+    strcpy(screen->app_id, "hello");
     uint32_t typed[TYPED_CAPACITY];
     int typed_length = 0;
     uint32_t text_read_index = 0, paste_sequence = 0;
@@ -60,6 +61,12 @@ int main(void) {
             else if (codepoint >= ' ' && typed_length < TYPED_CAPACITY)
                 typed[typed_length++] = codepoint;
         }
+
+        // The window's title is the typed line; empty shows the file name.
+        int title_length = 0;
+        for (int index = 0; index < typed_length && title_length + 4 < (int)sizeof screen->title; index++)
+            title_length += utf8_encode(typed[index], (uint8_t *)&screen->title[title_length]);
+        screen->title[title_length] = 0;
 
         // Pasted text is added byte by byte, so only ASCII comes through intact.
         if (screen->paste_sequence != paste_sequence) {

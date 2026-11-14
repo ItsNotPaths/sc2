@@ -25,4 +25,21 @@ echo "the contract between libotk and a host"
     "$ROOT/tests/contract.c" "$BUILD/libotk.a" -o "$BUILD/contract"
 "$BUILD/contract"
 
+if [ -n "${WAYLAND_DISPLAY:-}" ]; then
+    echo "otkhost survives programs that break the contract (each opens a window for 2 s)"
+    "${CC:-clang}" -std=c99 -Wall -Wextra -I "$ROOT/include" "$ROOT/tests/hostile.c" "$BUILD/libotk.a" \
+        -o "$BUILD/hostile"
+    for mode in garbage stuck shrink; do
+        status=0
+        timeout 20 "$BUILD/otkhost" "$BUILD/hostile" "$mode" || status=$?
+        if [ "$status" -ne 0 ]; then
+            echo "FAIL otkhost with a $mode program: exit $status" >&2
+            exit 1
+        fi
+        echo "ok   $mode"
+    done
+else
+    echo "skipped otkhost against programs that break the contract: needs a Wayland session"
+fi
+
 echo "all passed"
