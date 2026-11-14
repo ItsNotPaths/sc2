@@ -19,6 +19,7 @@ layout(buffer_reference, std430) readonly buffer Cells { uint cells[]; };
 layout(buffer_reference, std430) readonly buffer Coverage { uint words[]; };     // a byte per pixel, 4 per word
 layout(buffer_reference, std430) readonly buffer GlyphTable { uint entries[]; }; // key, slot pairs
 layout(buffer_reference, std430) buffer MissTable { uint keys[]; };
+layout(buffer_reference, std430) buffer SlotFrames { uint frames[]; };  // the last frame that drew each slot
 
 struct Node {
     int  clip_left, clip_top, clip_right, clip_bottom;
@@ -33,11 +34,13 @@ layout(buffer_reference, std430) readonly buffer Frame {
     Coverage   coverage;
     GlyphTable glyph_table;
     MissTable  miss_table;
+    SlotFrames slot_frames;
     uint palette[16];
     uint cell_width, cell_height;
     uint underline_top, underline_thickness;
     uint glyph_table_mask, miss_table_mask;
     uint node_count;
+    uint frame_number;
     Node nodes[];
 };
 
@@ -92,6 +95,8 @@ float glyph_coverage(uint cell, uvec2 inside) {
         record_miss(key);
         return 0.0;
     }
+    if (frame.slot_frames.frames[slot] != frame.frame_number)
+        frame.slot_frames.frames[slot] = frame.frame_number;
     uint byte_index = (slot * frame.cell_height + inside.y) * frame.cell_width + inside.x;
     return float((frame.coverage.words[byte_index >> 2] >> ((byte_index & 3u) * 8u)) & 255u) / 255.0;
 }

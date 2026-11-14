@@ -14,16 +14,17 @@ typedef struct {
 
 // Everything one frame of draw.comp reads. Matches Frame in draw.comp.
 typedef struct {
-    VkDeviceAddress cells, coverage, glyph_table, miss_table;
+    VkDeviceAddress cells, coverage, glyph_table, miss_table, slot_frames;
     uint32_t palette[16];
     uint32_t cell_width, cell_height;
     uint32_t underline_top, underline_thickness;
     uint32_t glyph_table_mask, miss_table_mask;
     uint32_t node_count;                       // highest visible index + 1
+    uint32_t frame_number;
     DrawNode nodes[NODE_CAPACITY];
 } DrawFrame;
 
-static_assert(offsetof(DrawFrame, nodes) == 124, "draw.comp reads the nodes at offset 124");
+static_assert(offsetof(DrawFrame, nodes) == 136, "draw.comp reads the nodes at offset 136");
 
 static int32_t to_pixels(int32_t eighths, uint32_t cell_size) {
     return (int32_t)floor_divide((int64_t)eighths * cell_size, 8);
@@ -61,6 +62,7 @@ static bool frame_build(Library *library) {
     frame->coverage = atlas->coverage.address;
     frame->glyph_table = atlas->glyph_table.address;
     frame->miss_table = atlas->miss_table.address;
+    frame->slot_frames = atlas->slot_frames.address;
     memcpy(frame->palette, library->settings.palette, sizeof frame->palette);
     frame->cell_width = font->cell_width;
     frame->cell_height = font->cell_height;
@@ -69,6 +71,7 @@ static bool frame_build(Library *library) {
     frame->glyph_table_mask = GLYPH_TABLE_CAPACITY - 1;
     frame->miss_table_mask = MISS_TABLE_CAPACITY - 1;
     frame->node_count = node_count;
+    frame->frame_number = ++drawing->frame_number;
 
     Cell *packed_cells = drawing->cells.mapped;
     uint32_t packed = 0;
@@ -106,7 +109,7 @@ void draw_close(Library *library) {
 }
 
 // Due when the compositor wants a frame and something changed: a commit, the window size,
-// or glyphs the last frame missed.
+// or glyphs the last frame missed, now in the atlas.
 bool draw_due(Library *library) {
     const Window *window = &library->window;
     const VkExtent2D extent = library->graphics.extent;
@@ -114,7 +117,7 @@ bool draw_due(Library *library) {
         return false;
     return atomic_load(&library->commit_count) != library->drawing.drawn_commit
         || extent.width != window->width || extent.height != window->height
-        || atlas_missed(library);
+        || atlas_fill_misses(library);
 }
 
 void draw_frame(Library *library) {

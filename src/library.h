@@ -123,13 +123,16 @@ typedef struct {
     Buffer   coverage;                         // one cell-sized slot per glyph, a byte per pixel
     Buffer   glyph_table;                      // key, slot pairs; the shader looks glyphs up here
     Buffer   miss_table;                       // keys the shader found no slot for
-    uint32_t slots_used;
+    Buffer   slot_frames;                      // per slot, the last frame that drew it
+    uint32_t free_slots[SLOT_CAPACITY];
+    uint32_t free_count;
 } Atlas;
 
 typedef struct {
     Buffer   frame;                            // DrawFrame, see draw.c
     Buffer   cells;                            // committed cells, packed per node
     uint32_t drawn_commit;
+    uint32_t frame_number;                     // of the last frame built
 } Drawing;
 
 typedef struct {
@@ -256,8 +259,7 @@ void buffer_destroy(Graphics *graphics, Buffer *buffer);
 // atlas.c
 bool atlas_open(Library *library);
 void atlas_close(Library *library);
-bool atlas_missed(Library *library);
-void atlas_fill_misses(Library *library);
+bool atlas_fill_misses(Library *library);
 
 // draw.c
 bool draw_open(Library *library);
