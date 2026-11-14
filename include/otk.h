@@ -1,5 +1,5 @@
-// OTK: the whole interface. Strict C99 so every FFI can parse it.
-// otk_screen holds no pointers; it lives in shared memory.
+// OTK: the whole contract between a program and its host. Strict C99 so every FFI can parse it.
+// otk_screen holds no pointers; it lives in memory shared with the host. include/contract.md has the rules.
 #ifndef OTK_H
 #define OTK_H
 
@@ -93,8 +93,30 @@ typedef struct {
     uint8_t  copy_data;                      // OTK_DATA_ bits the copy is offered as
 } otk_screen;
 
-otk_screen *otk_open(const char *title);   // 0 if no window could open
-int         otk_tick(otk_screen *screen);  // commit, sleep to next tick; 0 once closed
+// Host contract. The host runs the program with three inherited fds, named in the environment:
+// OTK_SHARED_FD, a memfd holding otk_shared; OTK_COMMIT_FD, an eventfd the program writes after
+// each commit; OTK_INPUT_FD, an eventfd the host writes after input changes.
+
+enum { OTK_MAGIC = 0x316b746f, OTK_VERSION = 1 };  // magic is "otk1" in memory
+
+// A region's sequence is odd while its writer writes it. A reader that saw an odd or changed
+// sequence across its read saw a torn region, and reads again.
+typedef struct {
+    uint32_t magic, version;
+    uint32_t input_sequence;                 // incoming, written by the host
+    uint32_t commit_sequence;                // committed, written by the program at each tick
+    uint8_t  page_rest[4080];                // so screen.pixels starts on a page
+} otk_header;
+
+typedef struct {
+    otk_header header;
+    otk_screen screen;                       // the program's own; the host reads only pixels from it
+    otk_screen incoming;                     // input from the host; each tick copies it into screen
+    otk_screen committed;                    // each tick copies the program's fields and cells here
+} otk_shared;
+
+otk_screen *otk_open(void);                  // 0 when not run by a host
+int         otk_tick(otk_screen *screen);    // commit, sleep to next tick; 0 once closed
 void        otk_close(otk_screen *screen);
 
 #ifdef __cplusplus

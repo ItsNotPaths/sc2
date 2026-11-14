@@ -30,7 +30,7 @@ static void image_draw(uint8_t *pixels, int phase) {
 }
 
 int main(void) {
-    otk_screen *screen = otk_open("image");
+    otk_screen *screen = otk_open();
     if (!screen)
         return 1;
     const char *caption = "drag me";

@@ -1,4 +1,4 @@
-#include "library.h"
+#include "host.h"
 
 static void window_manager_ping(void *, struct xdg_wm_base *window_manager, uint32_t serial) {
     xdg_wm_base_pong(window_manager, serial);
@@ -10,15 +10,15 @@ static const struct xdg_wm_base_listener window_manager_listener = {
 
 // Ends a configure sequence: the size from the toplevel configure before it takes effect.
 static void shell_surface_configure(void *data, struct xdg_surface *shell_surface, uint32_t serial) {
-    Library *library = data;
-    Window *window = &library->window;
+    Host *host = data;
+    Window *window = &host->window;
     xdg_surface_ack_configure(shell_surface, serial);
     if (window->requested_width && window->requested_height) {
         window->surface_width = window->requested_width;
         window->surface_height = window->requested_height;
     }
     window->configured = true;
-    window_resize(library);
+    window_resize(host);
 }
 
 static const struct xdg_surface_listener shell_surface_listener = {
@@ -26,14 +26,14 @@ static const struct xdg_surface_listener shell_surface_listener = {
 };
 
 static void toplevel_configure(void *data, struct xdg_toplevel *, int32_t width, int32_t height, struct wl_array *) {
-    Library *library = data;
-    library->window.requested_width = width;
-    library->window.requested_height = height;
+    Host *host = data;
+    host->window.requested_width = width;
+    host->window.requested_height = height;
 }
 
 static void toplevel_close(void *data, struct xdg_toplevel *) {
-    Library *library = data;
-    library->incoming->closed = 1;
+    Host *host = data;
+    host->incoming->closed = 1;
 }
 
 static void toplevel_configure_bounds(void *, struct xdg_toplevel *, int32_t, int32_t) {}
@@ -47,9 +47,9 @@ static const struct xdg_toplevel_listener toplevel_listener = {
 };
 
 static void frame_done(void *data, struct wl_callback *callback, uint32_t) {
-    Library *library = data;
+    Host *host = data;
     wl_callback_destroy(callback);
-    library->window.frame_pending = false;
+    host->window.frame_pending = false;
 }
 
 static const struct wl_callback_listener frame_listener = {
@@ -57,31 +57,31 @@ static const struct wl_callback_listener frame_listener = {
 };
 
 // Waits for the first configure: the window has no size before it, and may not present.
-bool window_open(Library *library, const char *title) {
-    Globals *globals = &library->globals;
-    Window *window = &library->window;
-    window->surface_width = library->settings.window_columns * library->font.cell_width;
-    window->surface_height = library->settings.window_rows * library->font.cell_height;
+bool window_open(Host *host, const char *title) {
+    Globals *globals = &host->globals;
+    Window *window = &host->window;
+    window->surface_width = host->settings.window_columns * host->font.cell_width;
+    window->surface_height = host->settings.window_rows * host->font.cell_height;
 
-    xdg_wm_base_add_listener(globals->window_manager, &window_manager_listener, library);
+    xdg_wm_base_add_listener(globals->window_manager, &window_manager_listener, host);
     window->surface = wl_compositor_create_surface(globals->compositor);
     window->shell_surface = xdg_wm_base_get_xdg_surface(globals->window_manager, window->surface);
-    xdg_surface_add_listener(window->shell_surface, &shell_surface_listener, library);
+    xdg_surface_add_listener(window->shell_surface, &shell_surface_listener, host);
     window->toplevel = xdg_surface_get_toplevel(window->shell_surface);
-    xdg_toplevel_add_listener(window->toplevel, &toplevel_listener, library);
+    xdg_toplevel_add_listener(window->toplevel, &toplevel_listener, host);
     xdg_toplevel_set_title(window->toplevel, title ? title : "");
-    scale_attach(library);
+    scale_attach(host);
     wl_surface_commit(window->surface);
 
     while (!window->configured)
-        if (wl_display_dispatch(library->display) < 0)
+        if (wl_display_dispatch(host->display) < 0)
             return failed("the compositor never configured the window");
     return true;
 }
 
-void window_close(Library *library) {
-    Window *window = &library->window;
-    scale_detach(library);
+void window_close(Host *host) {
+    Window *window = &host->window;
+    scale_detach(host);
     if (window->toplevel)
         xdg_toplevel_destroy(window->toplevel);
     if (window->shell_surface)
@@ -91,21 +91,21 @@ void window_close(Library *library) {
 }
 
 // Pixels and grid from the surface size and the scale; the viewport shows the pixels at surface size.
-// Writes incoming, so the caller holds the lock.
-void window_resize(Library *library) {
-    Window *window = &library->window;
-    uint32_t scale = library->font.scale;
+// Writes incoming, so it runs inside an input section.
+void window_resize(Host *host) {
+    Window *window = &host->window;
+    uint32_t scale = host->font.scale;
     window->width = (window->surface_width * scale + 60) / 120;
     window->height = (window->surface_height * scale + 60) / 120;
     if (window->viewport)
         wp_viewport_set_destination(window->viewport, window->surface_width, window->surface_height);
-    library->incoming->columns = window->width / library->font.cell_width;
-    library->incoming->rows = window->height / library->font.cell_height;
+    host->incoming->columns = window->width / host->font.cell_width;
+    host->incoming->rows = window->height / host->font.cell_height;
 }
 
 // The compositor answers when it wants the next frame. The next present carries the request.
-void window_request_frame(Library *library) {
-    struct wl_callback *callback = wl_surface_frame(library->window.surface);
-    wl_callback_add_listener(callback, &frame_listener, library);
-    library->window.frame_pending = true;
+void window_request_frame(Host *host) {
+    struct wl_callback *callback = wl_surface_frame(host->window.surface);
+    wl_callback_add_listener(callback, &frame_listener, host);
+    host->window.frame_pending = true;
 }

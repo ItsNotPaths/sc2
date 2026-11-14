@@ -1,10 +1,11 @@
 #include <errno.h>
 #include <fcntl.h>
+#include <sched.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <unistd.h>
 
-#include "library.h"
+#include "host.h"
 
 typedef struct {
     const char *mime_type;
@@ -45,10 +46,10 @@ static int data_type_find(uint16_t types, uint8_t wanted) {
 }
 
 // Every request and every drop gets one answer: the bytes, or none when the read failed.
-static void receive_end(Library *library, bool arrived) {
-    Clipboard *clipboard = &library->clipboard;
+static void receive_end(Host *host, bool arrived) {
+    Clipboard *clipboard = &host->clipboard;
     Receive *receive = &clipboard->receive;
-    otk_screen *incoming = library->incoming;
+    otk_screen *incoming = host->incoming;
     uint32_t length = arrived ? receive->length : 0;
     if (length)
         memcpy(incoming->paste, clipboard->received, length);
@@ -73,16 +74,16 @@ static void receive_end(Library *library, bool arrived) {
 }
 
 // Reads one row of offer into received. A read still running is answered empty first.
-static void receive_start(Library *library, Receive request, struct wl_data_offer *offer, int row) {
-    Receive *receive = &library->clipboard.receive;
+static void receive_start(Host *host, Receive request, struct wl_data_offer *offer, int row) {
+    Receive *receive = &host->clipboard.receive;
     if (receive->active)
-        receive_end(library, false);
+        receive_end(host, false);
     *receive = request;
     receive->active = true;
     receive->pipe = -1;
     int pipe_ends[2];
     if (row < 0 || pipe2(pipe_ends, O_CLOEXEC | O_NONBLOCK) < 0) {
-        receive_end(library, false);
+        receive_end(host, false);
         return;
     }
     wl_data_offer_receive(offer, data_types[row].mime_type, pipe_ends[1]);
@@ -91,8 +92,8 @@ static void receive_start(Library *library, Receive request, struct wl_data_offe
 }
 
 // received holds one byte past OTK_PASTE_CAPACITY, so a paste too large to keep shows up.
-static void receive_read(Library *library) {
-    Clipboard *clipboard = &library->clipboard;
+static void receive_read(Host *host) {
+    Clipboard *clipboard = &host->clipboard;
     Receive *receive = &clipboard->receive;
     ssize_t count = -1;
     while (receive->length <= OTK_PASTE_CAPACITY
@@ -100,18 +101,17 @@ static void receive_read(Library *library) {
                             OTK_PASTE_CAPACITY + 1 - receive->length)) > 0)
         receive->length += count;
     if (receive->length > OTK_PASTE_CAPACITY)
-        receive_end(library, false);
+        receive_end(host, false);
     else if (count == 0)
-        receive_end(library, true);
+        receive_end(host, true);
     else if (errno != EAGAIN)
-        receive_end(library, false);
+        receive_end(host, false);
 }
 
-static void paste_start(Library *library) {
-    Clipboard *clipboard = &library->clipboard;
-    uint8_t wanted = library->committed->paste_request_data;
+static void paste_start(Host *host, uint8_t wanted) {
+    Clipboard *clipboard = &host->clipboard;
     Receive request = {.data = wanted, .source = OTK_PASTE_CLIPBOARD};
-    receive_start(library, request, clipboard->selection, data_type_find(clipboard->selection_types, wanted));
+    receive_start(host, request, clipboard->selection, data_type_find(clipboard->selection_types, wanted));
 }
 
 static void send_close(Clipboard *clipboard, uint32_t index) {
@@ -119,18 +119,15 @@ static void send_close(Clipboard *clipboard, uint32_t index) {
     clipboard->sends[index] = clipboard->sends[--clipboard->send_count];
 }
 
-// Writes what each pipe takes now. A newer copy cuts the older sends off, since their bytes are gone.
-static void sends_write(Library *library) {
-    Clipboard *clipboard = &library->clipboard;
-    const uint8_t *copy = library->committed->copy;
-    bool current = library->committed->copy_sequence == clipboard->copy_sequence;
+// Writes what each pipe takes now.
+static void sends_write(Clipboard *clipboard) {
     for (uint32_t index = 0; index < clipboard->send_count;) {
         Send *send = &clipboard->sends[index];
         ssize_t count = -1;
-        while (current && send->length < clipboard->copy_length
-               && (count = write(send->pipe, copy + send->length, clipboard->copy_length - send->length)) > 0)
+        while (send->length < clipboard->copy_length
+               && (count = write(send->pipe, clipboard->offered + send->length, clipboard->copy_length - send->length)) > 0)
             send->length += count;
-        bool waiting = current && send->length < clipboard->copy_length && count < 0 && errno == EAGAIN;
+        bool waiting = send->length < clipboard->copy_length && count < 0 && errno == EAGAIN;
         if (waiting)
             index++;
         else
@@ -139,7 +136,7 @@ static void sends_write(Library *library) {
 }
 
 static void source_send(void *data, struct wl_data_source *, const char *, int32_t pipe) {
-    Clipboard *clipboard = &((Library *)data)->clipboard;
+    Clipboard *clipboard = &((Host *)data)->clipboard;
     if (clipboard->send_count == SEND_CAPACITY) {
         close(pipe);
         return;
@@ -151,7 +148,7 @@ static void source_send(void *data, struct wl_data_source *, const char *, int32
 // Another client took the clipboard.
 static void source_cancelled(void *data, struct wl_data_source *source) {
     wl_data_source_destroy(source);
-    ((Library *)data)->clipboard.source = nullptr;
+    ((Host *)data)->clipboard.source = nullptr;
 }
 
 static void source_target(void *, struct wl_data_source *, const char *) {}
@@ -168,27 +165,45 @@ static const struct wl_data_source_listener source_listener = {
     .action = source_action,
 };
 
+// Takes the program's copy from one whole commit into offered. Sends still running are cut off
+// first, since their bytes are about to be gone.
+static uint8_t copy_take(Host *host) {
+    Clipboard *clipboard = &host->clipboard;
+    const otk_screen *committed = host->committed;
+    const uint32_t *sequence = &host->shared->header.commit_sequence;
+    while (clipboard->send_count)
+        send_close(clipboard, 0);
+    for (;;) {
+        uint32_t begun = sequence_read_begin(sequence);
+        uint8_t copy_data = committed->copy_data;
+        clipboard->copy_sequence = committed->copy_sequence;
+        clipboard->copy_length = committed->copy_length < OTK_COPY_CAPACITY ? committed->copy_length : OTK_COPY_CAPACITY;
+        memcpy(clipboard->offered, committed->copy, clipboard->copy_length);
+        if (sequence_read_valid(sequence, begun))
+            return copy_data;
+        sched_yield();
+    }
+}
+
 // copy_data 0 empties the clipboard.
-static void copy_offer(Library *library) {
-    Clipboard *clipboard = &library->clipboard;
-    const otk_screen *committed = library->committed;
+static void copy_offer(Host *host, uint8_t copy_data) {
+    Clipboard *clipboard = &host->clipboard;
     struct wl_data_source *source = nullptr;
-    if (committed->copy_data) {
-        source = wl_data_device_manager_create_data_source(library->globals.data_device_manager);
-        wl_data_source_add_listener(source, &source_listener, library);
+    if (copy_data) {
+        source = wl_data_device_manager_create_data_source(host->globals.data_device_manager);
+        wl_data_source_add_listener(source, &source_listener, host);
         for (int row = 0; row < DATA_TYPE_COUNT; row++)
-            if (data_types[row].data & committed->copy_data)
+            if (data_types[row].data & copy_data)
                 wl_data_source_offer(source, data_types[row].mime_type);
     }
-    wl_data_device_set_selection(clipboard->data_device, source, library->input_serial);
+    wl_data_device_set_selection(clipboard->data_device, source, host->input_serial);
     if (clipboard->source)
         wl_data_source_destroy(clipboard->source);
     clipboard->source = source;
-    clipboard->copy_length = committed->copy_length < OTK_COPY_CAPACITY ? committed->copy_length : OTK_COPY_CAPACITY;
 }
 
 static void offer_type(void *data, struct wl_data_offer *, const char *mime_type) {
-    Clipboard *clipboard = &((Library *)data)->clipboard;
+    Clipboard *clipboard = &((Host *)data)->clipboard;
     for (int row = 0; row < DATA_TYPE_COUNT; row++)
         if (strcmp(mime_type, data_types[row].mime_type) == 0)
             clipboard->newest_types |= 1u << row;
@@ -205,25 +220,25 @@ static const struct wl_data_offer_listener offer_listener = {
 
 // An offer's types arrive right after it is announced, before the enter or selection that uses it.
 static void device_data_offer(void *data, struct wl_data_device *, struct wl_data_offer *offer) {
-    Library *library = data;
-    library->clipboard.newest_types = 0;
-    wl_data_offer_add_listener(offer, &offer_listener, library);
+    Host *host = data;
+    host->clipboard.newest_types = 0;
+    wl_data_offer_add_listener(offer, &offer_listener, host);
 }
 
 static void device_selection(void *data, struct wl_data_device *, struct wl_data_offer *offer) {
-    Library *library = data;
-    Clipboard *clipboard = &library->clipboard;
+    Host *host = data;
+    Clipboard *clipboard = &host->clipboard;
     if (clipboard->selection)
         wl_data_offer_destroy(clipboard->selection);
     clipboard->selection = offer;
     clipboard->selection_types = offer ? clipboard->newest_types : 0;
-    library->incoming->paste_offered = data_bits(clipboard->selection_types);
+    host->incoming->paste_offered = data_bits(clipboard->selection_types);
 }
 
-static void drag_move(Library *library, wl_fixed_t x, wl_fixed_t y) {
-    Clipboard *clipboard = &library->clipboard;
-    clipboard->drag_column = fixed_to_eighths(x, library->font.cell_width, library->font.scale);
-    clipboard->drag_row = fixed_to_eighths(y, library->font.cell_height, library->font.scale);
+static void drag_move(Host *host, wl_fixed_t x, wl_fixed_t y) {
+    Clipboard *clipboard = &host->clipboard;
+    clipboard->drag_column = fixed_to_eighths(x, host->font.cell_width, host->font.scale);
+    clipboard->drag_row = fixed_to_eighths(y, host->font.cell_height, host->font.scale);
 }
 
 static void drag_discard(Clipboard *clipboard) {
@@ -235,8 +250,8 @@ static void drag_discard(Clipboard *clipboard) {
 // A drag of nothing we know is refused here, so it never drops.
 static void device_enter(void *data, struct wl_data_device *, uint32_t serial, struct wl_surface *,
                          wl_fixed_t x, wl_fixed_t y, struct wl_data_offer *offer) {
-    Library *library = data;
-    Clipboard *clipboard = &library->clipboard;
+    Host *host = data;
+    Clipboard *clipboard = &host->clipboard;
     drag_discard(clipboard);
     if (!offer)
         return;
@@ -247,11 +262,11 @@ static void device_enter(void *data, struct wl_data_device *, uint32_t serial, s
     if (wl_data_offer_get_version(offer) >= 3)
         wl_data_offer_set_actions(offer, WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY,
                                   WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY);
-    drag_move(library, x, y);
+    drag_move(host, x, y);
 }
 
 static void device_leave(void *data, struct wl_data_device *) {
-    drag_discard(&((Library *)data)->clipboard);
+    drag_discard(&((Host *)data)->clipboard);
 }
 
 static void device_motion(void *data, struct wl_data_device *, uint32_t, wl_fixed_t x, wl_fixed_t y) {
@@ -260,8 +275,8 @@ static void device_motion(void *data, struct wl_data_device *, uint32_t, wl_fixe
 
 // The bytes arrive after the drag ends, so the receive keeps the offer and where it dropped.
 static void device_drop(void *data, struct wl_data_device *) {
-    Library *library = data;
-    Clipboard *clipboard = &library->clipboard;
+    Host *host = data;
+    Clipboard *clipboard = &host->clipboard;
     if (!clipboard->drag)
         return;
     int row = data_type_find(clipboard->drag_types, DATA_ANY);
@@ -271,10 +286,10 @@ static void device_drop(void *data, struct wl_data_device *) {
         .dropped = clipboard->drag,
         .drop_column = clipboard->drag_column,
         .drop_row = clipboard->drag_row,
-        .drop_node = node_at(library->placements, clipboard->drag_column, clipboard->drag_row),
+        .drop_node = node_at(host->placements, clipboard->drag_column, clipboard->drag_row),
     };
     clipboard->drag = nullptr;
-    receive_start(library, request, request.dropped, row);
+    receive_start(host, request, request.dropped, row);
 }
 
 static const struct wl_data_device_listener device_listener = {
@@ -286,26 +301,29 @@ static const struct wl_data_device_listener device_listener = {
     .selection = device_selection,
 };
 
-void clipboard_attach(Library *library) {
-    Clipboard *clipboard = &library->clipboard;
-    if (!library->globals.data_device_manager)
+void clipboard_attach(Host *host) {
+    Clipboard *clipboard = &host->clipboard;
+    if (!host->globals.data_device_manager)
         return;
     void *received = mmap(nullptr, OTK_PASTE_CAPACITY + 1, PROT_READ | PROT_WRITE,
                           MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
-    if (received == MAP_FAILED)
+    void *offered = mmap(nullptr, OTK_COPY_CAPACITY, PROT_READ | PROT_WRITE,
+                         MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+    if (received == MAP_FAILED || offered == MAP_FAILED)
         return;
     clipboard->received = received;
-    clipboard->data_device = wl_data_device_manager_get_data_device(library->globals.data_device_manager,
-                                                                    library->globals.seat);
-    wl_data_device_add_listener(clipboard->data_device, &device_listener, library);
+    clipboard->offered = offered;
+    clipboard->data_device = wl_data_device_manager_get_data_device(host->globals.data_device_manager,
+                                                                    host->globals.seat);
+    wl_data_device_add_listener(clipboard->data_device, &device_listener, host);
 }
 
-void clipboard_detach(Library *library) {
-    Clipboard *clipboard = &library->clipboard;
+void clipboard_detach(Host *host) {
+    Clipboard *clipboard = &host->clipboard;
     if (!clipboard->data_device)
         return;
     if (clipboard->receive.active)
-        receive_end(library, false);
+        receive_end(host, false);
     while (clipboard->send_count)
         send_close(clipboard, 0);
     drag_discard(clipboard);
@@ -315,25 +333,36 @@ void clipboard_detach(Library *library) {
         wl_data_source_destroy(clipboard->source);
     wl_data_device_release(clipboard->data_device);
     munmap(clipboard->received, OTK_PASTE_CAPACITY + 1);
+    munmap(clipboard->offered, OTK_COPY_CAPACITY);
     *clipboard = (Clipboard){};
 }
 
-// Runs on the library thread after each wake. Without a data device, a paste is answered empty.
-void clipboard_serve(Library *library) {
-    Clipboard *clipboard = &library->clipboard;
-    const otk_screen *committed = library->committed;
-    if (committed->paste_request != clipboard->paste_request) {
-        clipboard->paste_request = committed->paste_request;
-        paste_start(library);
+// Runs after each commit, inside an input section. Without a data device, a paste is answered empty.
+void clipboard_serve(Host *host) {
+    Clipboard *clipboard = &host->clipboard;
+    const otk_screen *committed = host->committed;
+    const uint32_t *sequence = &host->shared->header.commit_sequence;
+    uint32_t paste_request, copy_sequence;
+    uint8_t paste_request_data;
+    for (;;) {
+        uint32_t begun = sequence_read_begin(sequence);
+        paste_request = committed->paste_request;
+        paste_request_data = committed->paste_request_data;
+        copy_sequence = committed->copy_sequence;
+        if (sequence_read_valid(sequence, begun))
+            break;
+        sched_yield();
     }
-    if (committed->copy_sequence != clipboard->copy_sequence && clipboard->data_device) {
-        clipboard->copy_sequence = committed->copy_sequence;
-        copy_offer(library);
+    if (paste_request != clipboard->paste_request) {
+        clipboard->paste_request = paste_request;
+        paste_start(host, paste_request_data);
     }
+    if (copy_sequence != clipboard->copy_sequence && clipboard->data_device)
+        copy_offer(host, copy_take(host));
 }
 
-size_t clipboard_poll(const Library *library, struct pollfd *waiting) {
-    const Clipboard *clipboard = &library->clipboard;
+size_t clipboard_poll(const Host *host, struct pollfd *waiting) {
+    const Clipboard *clipboard = &host->clipboard;
     size_t count = 0;
     if (clipboard->receive.active)
         waiting[count++] = (struct pollfd){.fd = clipboard->receive.pipe, .events = POLLIN};
@@ -343,8 +372,8 @@ size_t clipboard_poll(const Library *library, struct pollfd *waiting) {
 }
 
 // Pipes are non-blocking, so every pipe in flight is tried, ready or not.
-void clipboard_transfer(Library *library) {
-    if (library->clipboard.receive.active)
-        receive_read(library);
-    sends_write(library);
+void clipboard_transfer(Host *host) {
+    if (host->clipboard.receive.active)
+        receive_read(host);
+    sends_write(&host->clipboard);
 }

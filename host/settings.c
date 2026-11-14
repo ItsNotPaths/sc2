@@ -1,6 +1,6 @@
-#include "library.h"
+#include "host.h"
 
-// Users vendor OTK and patch these. otk_open fails when the font is missing.
+// Users vendor OTK and patch these. otkhost stops when the font is missing.
 static const Settings defaults = {
     .font_path = "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
     .font_size = 20,
@@ -15,9 +15,9 @@ static const Settings defaults = {
     .cursor_size = 24,
 };
 
-// Runs in otk_open, and on the library thread under the lock before each draw. The seam for a
-// setting that changes at run time: a patch takes it from committed here, such as a font_size
-// field the program writes. A font or palette change shows on that draw.
-void settings_update(Library *library) {
-    library->settings = defaults;
+// Runs at start, and before each draw inside an input section. The seam for a setting that
+// changes at run time: a patch takes it from committed here, such as a font_size field the
+// program writes. A font or palette change shows on that draw.
+void settings_update(Host *host) {
+    host->settings = defaults;
 }

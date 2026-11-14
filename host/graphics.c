@@ -1,6 +1,6 @@
 #include <string.h>
 
-#include "library.h"
+#include "host.h"
 
 alignas(uint32_t) static const unsigned char draw_shader[] = {
 #embed "draw.spv"
@@ -217,14 +217,14 @@ static bool commands_create(Graphics *graphics) {
 }
 
 // The swapchain comes later, from graphics_resize, once the window has a size.
-bool graphics_open(Library *library) {
-    Graphics *graphics = &library->graphics;
+bool graphics_open(Host *host) {
+    Graphics *graphics = &host->graphics;
     if (!instance_create(graphics))
         return failed("cannot make a Vulkan 1.3 instance");
     if (vkCreateWaylandSurfaceKHR(graphics->instance, &(VkWaylandSurfaceCreateInfoKHR){
             .sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR,
-            .display = library->display,
-            .surface = library->window.surface,
+            .display = host->display,
+            .surface = host->window.surface,
         }, nullptr, &graphics->surface) != VK_SUCCESS)
         return failed("cannot make a Vulkan surface for the window");
     if (!device_choose(graphics))

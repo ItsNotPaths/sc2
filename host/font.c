@@ -1,6 +1,6 @@
 #include <string.h>
 
-#include "library.h"
+#include "host.h"
 
 #include FT_SYNTHESIS_H
 

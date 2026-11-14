@@ -1,6 +1,6 @@
 #include <string.h>
 
-#include "library.h"
+#include "host.h"
 
 // Both tables are open addressing with linear probing, the same in draw.comp.
 // A key is the codepoint with the cell's bold bit; 0 marks an empty entry.
@@ -27,10 +27,10 @@ static void glyph_insert(uint32_t *glyph_table, uint32_t key, uint32_t slot) {
     glyph_table[entry * 2 + 1] = slot;
 }
 
-bool atlas_open(Library *library) {
-    Graphics *graphics = &library->graphics;
-    Atlas *atlas = &library->atlas;
-    VkDeviceSize slot_size = library->font.cell_width * library->font.cell_height;
+bool atlas_open(Host *host) {
+    Graphics *graphics = &host->graphics;
+    Atlas *atlas = &host->atlas;
+    VkDeviceSize slot_size = host->font.cell_width * host->font.cell_height;
     if (!buffer_create(graphics, SLOT_CAPACITY * slot_size, &atlas->coverage)
         || !buffer_create(graphics, GLYPH_TABLE_CAPACITY * 2 * sizeof(uint32_t), &atlas->glyph_table)
         || !buffer_create(graphics, MISS_TABLE_CAPACITY * sizeof(uint32_t), &atlas->miss_table)
@@ -42,11 +42,11 @@ bool atlas_open(Library *library) {
     return true;
 }
 
-void atlas_close(Library *library) {
-    buffer_destroy(&library->graphics, &library->atlas.coverage);
-    buffer_destroy(&library->graphics, &library->atlas.glyph_table);
-    buffer_destroy(&library->graphics, &library->atlas.miss_table);
-    buffer_destroy(&library->graphics, &library->atlas.slot_frames);
+void atlas_close(Host *host) {
+    buffer_destroy(&host->graphics, &host->atlas.coverage);
+    buffer_destroy(&host->graphics, &host->atlas.glyph_table);
+    buffer_destroy(&host->graphics, &host->atlas.miss_table);
+    buffer_destroy(&host->graphics, &host->atlas.slot_frames);
 }
 
 // Frees each slot the last frame did not draw. Linear probing cannot delete in place, so the table is rebuilt.
@@ -70,14 +70,14 @@ static void atlas_evict(Atlas *atlas, uint32_t last_frame) {
 
 // Gives each glyph the last frame missed a slot, drawn by the font. True if any glyph was added.
 // A full atlas evicts once; glyphs past what one frame can hold stay blank.
-bool atlas_fill_misses(Library *library) {
-    graphics_wait(&library->graphics);
-    Atlas *atlas = &library->atlas;
-    uint32_t last_frame = library->drawing.frame_number;
+bool atlas_fill_misses(Host *host) {
+    graphics_wait(&host->graphics);
+    Atlas *atlas = &host->atlas;
+    uint32_t last_frame = host->drawing.frame_number;
     uint32_t *misses = atlas->miss_table.mapped;
     uint32_t *glyph_table = atlas->glyph_table.mapped;
     uint32_t *slot_frames = atlas->slot_frames.mapped;
-    uint32_t slot_size = library->font.cell_width * library->font.cell_height;
+    uint32_t slot_size = host->font.cell_width * host->font.cell_height;
     bool evicted = false;
     bool added = false;
     for (int miss = 0; miss < MISS_TABLE_CAPACITY; miss++) {
@@ -91,7 +91,7 @@ bool atlas_fill_misses(Library *library) {
         if (atlas->free_count == 0)
             break;
         uint32_t slot = atlas->free_slots[--atlas->free_count];
-        font_draw(&library->font, key & CODEPOINT_MASK, key & BOLD_BIT, (uint8_t *)atlas->coverage.mapped + slot * slot_size);
+        font_draw(&host->font, key & CODEPOINT_MASK, key & BOLD_BIT, (uint8_t *)atlas->coverage.mapped + slot * slot_size);
         glyph_insert(glyph_table, key, slot);
         slot_frames[slot] = last_frame;  // safe from eviction until a frame can draw it
         added = true;

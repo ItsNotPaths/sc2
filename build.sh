@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ./build.sh          debug build into build/libotk.a and build/libotk.so
+# ./build.sh          debug build: build/libotk.a and .so for programs, build/otkhost, build/examples
 # ./build.sh release  optimised build
 set -euo pipefail
 
@@ -36,10 +36,10 @@ FREETYPE_FILES=(
     pshinter/pshinter.c autofit/autofit.c smooth/smooth.c
 )
 
-# shaders/NAME.comp -> build/gen/NAME.spv, for #embed
+# host/shaders/NAME.comp -> build/gen/NAME.spv, for #embed
 compile_shaders() {
     mkdir -p "$BUILD/gen"
-    for shader in "$ROOT"/shaders/*.comp; do
+    for shader in "$ROOT"/host/shaders/*.comp; do
         glslc --target-env=vulkan1.3 "$shader" -o "$BUILD/gen/$(basename "$shader" .comp).spv"
     done
 }
@@ -49,42 +49,53 @@ compile() {
     local source="$1" object
     shift
     object="$BUILD/objects/$(basename "$source" .c).o"
-    "$CC" -fPIC -fvisibility=hidden "$@" -c "$source" -o "$object"
+    "$CC" "$@" -c "$source" -o "$object"
     objects+=("$object")
 }
 
-# Only otk_* stays global, in the .so and in the .a, so internal and FreeType names never clash with a program's.
+# The library programs link: only the contract, no Wayland and no GPU. Only otk_* stays global.
 build_library() {
     mkdir -p "$BUILD/objects"
-    local objects=() source file
-    for source in "$ROOT"/src/*.c "$BUILD"/gen/*.c; do
-        compile "$source" -std=c23 -D_GNU_SOURCE -Wall -Wextra "$@" \
-            -I "$ROOT/include" -I "$BUILD/gen" -I "$FREETYPE/include" --embed-dir="$BUILD/gen" \
-            $(pkg-config --cflags "${PACKAGES[@]}")
-    done
-    for file in "${FREETYPE_FILES[@]}"; do
-        compile "$FREETYPE/src/$file" -DFT2_BUILD_LIBRARY -DFT_CONFIG_MODULES_H='"freetype_modules.h"' "$@" \
-            -I "$FREETYPE/include" -I "$ROOT/src"
+    local objects=() source
+    for source in "$ROOT"/libotk/*.c; do
+        compile "$source" -std=c23 -D_GNU_SOURCE -Wall -Wextra -fPIC -fvisibility=hidden "$@" \
+            -I "$ROOT/include" -I "$ROOT/libotk"
     done
     ld -r -o "$BUILD/libotk.o" "${objects[@]}"
     objcopy --wildcard --keep-global-symbol='otk_*' "$BUILD/libotk.o"
     rm -f "$BUILD/libotk.a"
     ar rcs "$BUILD/libotk.a" "$BUILD/libotk.o"
-    "$CC" -shared -Wl,--no-undefined -o "$BUILD/libotk.so" "$BUILD/libotk.o" $(pkg-config --libs "${PACKAGES[@]}")
+    "$CC" -shared -Wl,--no-undefined -o "$BUILD/libotk.so" "$BUILD/libotk.o"
 }
 
-# examples/NAME.c -> build/examples/NAME, strict C99 like a binding, linked against libotk.a.
+# The reference host, with FreeType built in from the modules in host/freetype_modules.h.
+build_host() {
+    mkdir -p "$BUILD/objects/host"
+    local objects=() source file
+    for source in "$ROOT"/host/*.c "$BUILD"/gen/*.c; do
+        compile "$source" -std=c23 -D_GNU_SOURCE -Wall -Wextra "$@" \
+            -I "$ROOT/include" -I "$ROOT/libotk" -I "$BUILD/gen" -I "$FREETYPE/include" --embed-dir="$BUILD/gen" \
+            $(pkg-config --cflags "${PACKAGES[@]}")
+    done
+    for file in "${FREETYPE_FILES[@]}"; do
+        compile "$FREETYPE/src/$file" -DFT2_BUILD_LIBRARY -DFT_CONFIG_MODULES_H='"freetype_modules.h"' "$@" \
+            -I "$FREETYPE/include" -I "$ROOT/host"
+    done
+    "$CC" -Wl,--no-undefined -o "$BUILD/otkhost" "${objects[@]}" $(pkg-config --libs "${PACKAGES[@]}") -lm
+}
+
+# examples/NAME.c -> build/examples/NAME, strict C99 like a binding, linked against libotk.a alone.
 build_examples() {
     mkdir -p "$BUILD/examples"
     local example
     for example in "$ROOT"/examples/*.c; do
         "$CC" -std=c99 -Wall -Wextra "$@" -I "$ROOT/include" "$example" "$BUILD/libotk.a" \
-            $(pkg-config --libs "${PACKAGES[@]}") -lpthread -o "$BUILD/examples/$(basename "$example" .c)"
+            -o "$BUILD/examples/$(basename "$example" .c)"
     done
 }
 
 case "${1:-debug}" in
-    debug)   generate_protocols; compile_shaders; build_library -g -O0; build_examples -g -O0 ;;
-    release) generate_protocols; compile_shaders; build_library -O2; build_examples -O2 ;;
+    debug)   generate_protocols; compile_shaders; build_library -g -O0; build_host -g -O0; build_examples -g -O0 ;;
+    release) generate_protocols; compile_shaders; build_library -O2; build_host -O2; build_examples -O2 ;;
     *)       echo "usage: $0 [debug|release]" >&2; exit 2 ;;
 esac

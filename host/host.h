@@ -1,10 +1,9 @@
-// Library side: process-local state that must stay out of otk_screen.
+// otkhost: runs one OTK program and draws it in a Wayland window.
 #pragma once
 
 #include <poll.h>
-#include <pthread.h>
-#include <stdatomic.h>
 #include <stdint.h>
+#include <sys/types.h>
 #define VK_USE_PLATFORM_WAYLAND_KHR
 #include <vulkan/vulkan.h>
 #include <wayland-client.h>
@@ -13,14 +12,14 @@
 #include <ft2build.h>
 #include FT_FREETYPE_H
 
-#include "otk.h"
+#include "contract.h"
 #include "cursor-shape-v1.h"
 #include "fractional-scale-v1.h"
 #include "text-input-unstable-v3.h"
 #include "viewporter.h"
 #include "xdg-shell.h"
 
-enum { NODE_CAPACITY = 255, SWAPCHAIN_IMAGE_LIMIT = 8 };
+enum { SWAPCHAIN_IMAGE_LIMIT = 8 };
 
 enum {  // powers of two, so draw.comp wraps with a mask
     SLOT_CAPACITY        = 4096,
@@ -102,12 +101,13 @@ typedef struct {
     struct wl_data_offer  *drag;               // dragged over the window now
     struct wl_data_source *source;             // set while the copy owns the clipboard
     uint8_t *received;                         // bytes read so far; incoming gets them once complete
+    uint8_t *offered;                          // the copy we offer, taken from one whole commit
     Receive  receive;
     Send     sends[SEND_CAPACITY];
     uint32_t send_count;
     uint32_t paste_request;                    // last request served
     uint32_t copy_sequence;                    // last copy offered
-    uint32_t copy_length;                      // of the last copy offered; committed->copy holds its bytes
+    uint32_t copy_length;                      // of offered
     uint16_t newest_types;                     // a bit per data_types row, of the offer just announced
     uint16_t selection_types, drag_types;
     int16_t  drag_column, drag_row;            // eighths
@@ -186,8 +186,8 @@ typedef struct {
     Buffer   frame;                            // DrawFrame, see draw.c
     Buffer   cells;                            // committed cells, packed per node
     Buffer   pixels;                           // pixels from 0 to the last byte drawn: imported, or a copy
-    CopiedImage copied_images[NODE_CAPACITY];  // copy only; all zero after the copy grows
-    uint32_t drawn_commit;
+    CopiedImage copied_images[NODE_COUNT];  // copy only; all zero after the copy grows
+    uint32_t drawn_sequence;                   // commit_sequence of the commit last drawn
     uint32_t frame_number;                     // of the last frame built
 } Drawing;
 
@@ -201,22 +201,18 @@ typedef struct {
 } Placement;
 
 typedef struct {
-    otk_screen *screen;                        // shared with the program
-    otk_screen *incoming;                      // library writes input here; tick copies it into screen
-    otk_screen *committed;                     // tick copies nodes and cells here; draw reads them
-    int         memory_file;                   // memfd behind screen
-
-    pthread_t       thread;
-    pthread_mutex_t lock;                      // guards incoming and committed
-    pthread_cond_t  input_arrived;
-    int             wake_event;                // eventfd; the program thread wakes the library thread
-    int             repeat_timer;              // timerfd; keyboard arms it
-    atomic_bool     running, stopping;
-    atomic_uint     commit_count;              // bumped by each tick that changed something
-    uint64_t        next_tick;                 // CLOCK_MONOTONIC nanoseconds
-    bool            input_changed;             // the last tick brought input
-    bool            output_changed;            // the last tick's program changed something
-    uint32_t        input_serial;              // of the last input event; copy needs it
+    otk_shared *shared;                        // the memory shared with the program
+    otk_screen *screen;                        // the program's own; read only for pixels
+    otk_screen *incoming;                      // written only between input_begin and input_end
+    otk_screen *committed;                     // read only under commit_sequence
+    uint8_t     input_before[INPUT_SIZE];      // incoming's input at input_begin, to tell if it changed
+    int         memory_file;                   // memfd behind shared
+    int         commit_event;                  // eventfd; the program writes it after each commit
+    int         input_event;                   // eventfd; input_end writes it when input changed
+    int         repeat_timer;                  // timerfd; keyboard arms it
+    int         program_exit;                  // pidfd; readable once the program exits
+    pid_t       program_id;
+    uint32_t    input_serial;                  // of the last input event; copy needs it
 
     struct wl_display *display;
     Globals   globals;
@@ -229,9 +225,9 @@ typedef struct {
     Graphics  graphics;
     Atlas     atlas;
     Drawing   drawing;
-    Settings  settings;                        // only the library thread changes these, in settings_update
-    Placement placements[NODE_CAPACITY];       // drawn nodes, flattened
-} Library;
+    Settings  settings;                        // changed only in settings_update
+    Placement placements[NODE_COUNT];       // drawn nodes, flattened
+} Host;
 
 static inline int64_t floor_divide(int64_t dividend, int64_t divisor) {
     int64_t quotient = dividend / divisor;
@@ -253,54 +249,48 @@ static inline void transition_set(uint8_t *transitions, bool held) {
         (*transitions)++;
 }
 
-// library.c
-bool library_start(Library *library);
-void library_stop(Library *library);
-void library_wake(Library *library);
+// main.c
 bool failed(const char *reason);
-
-// tick.c
-void tick_publish(Library *library);
-void tick_wait(Library *library);
-void tick_receive(Library *library);
+void input_begin(Host *host);
+void input_end(Host *host);
 
 // wayland.c
-bool wayland_connect(Library *library);
-void wayland_disconnect(Library *library);
+bool wayland_connect(Host *host);
+void wayland_disconnect(Host *host);
 
 // window.c
-bool window_open(Library *library, const char *title);
-void window_close(Library *library);
-void window_request_frame(Library *library);
-void window_resize(Library *library);
+bool window_open(Host *host, const char *title);
+void window_close(Host *host);
+void window_request_frame(Host *host);
+void window_resize(Host *host);
 
 // scale.c
-void scale_attach(Library *library);
-void scale_detach(Library *library);
+void scale_attach(Host *host);
+void scale_detach(Host *host);
 
 // keyboard.c
-void keyboard_attach(Library *library);
-void keyboard_detach(Library *library);
-void keyboard_repeat(Library *library);
-void text_append(Library *library, uint32_t codepoint);
+void keyboard_attach(Host *host);
+void keyboard_detach(Host *host);
+void keyboard_repeat(Host *host);
+void text_append(Host *host, uint32_t codepoint);
 
 // pointer.c
-void pointer_attach(Library *library);
-void pointer_detach(Library *library);
-void pointer_hit(Library *library);
+void pointer_attach(Host *host);
+void pointer_detach(Host *host);
+void pointer_hit(Host *host);
 
 // text_input.c
-void text_input_attach(Library *library);
+void text_input_attach(Host *host);
 
 // clipboard.c
-void   clipboard_attach(Library *library);
-void   clipboard_detach(Library *library);
-void   clipboard_serve(Library *library);
-size_t clipboard_poll(const Library *library, struct pollfd *waiting);
-void   clipboard_transfer(Library *library);
+void   clipboard_attach(Host *host);
+void   clipboard_detach(Host *host);
+void   clipboard_serve(Host *host);
+size_t clipboard_poll(const Host *host, struct pollfd *waiting);
+void   clipboard_transfer(Host *host);
 
 // settings.c
-void settings_update(Library *library);
+void settings_update(Host *host);
 
 // font.c
 bool font_load(Font *font, const Settings *settings, uint32_t scale);
@@ -309,13 +299,11 @@ void font_close(Font *font);
 void font_draw(const Font *font, uint32_t codepoint, bool bold, uint8_t *coverage);
 
 // flatten.c
-void     flatten(const otk_node nodes[NODE_CAPACITY], Rectangle window, Placement placements[NODE_CAPACITY]);
-uint8_t  node_at(const Placement placements[NODE_CAPACITY], int32_t column, int32_t row);
-uint32_t node_cell_count(const otk_node *node);
-uint32_t node_pixel_size(const otk_node *node);
+void     flatten(const otk_node nodes[NODE_COUNT], Rectangle window, Placement placements[NODE_COUNT]);
+uint8_t  node_at(const Placement placements[NODE_COUNT], int32_t column, int32_t row);
 
 // graphics.c
-bool graphics_open(Library *library);
+bool graphics_open(Host *host);
 void graphics_close(Graphics *graphics);
 bool graphics_resize(Graphics *graphics, uint32_t width, uint32_t height);
 void graphics_wait(Graphics *graphics);
@@ -326,12 +314,12 @@ bool buffer_reserve(Graphics *graphics, Buffer *buffer, VkDeviceSize size);
 void buffer_destroy(Graphics *graphics, Buffer *buffer);
 
 // atlas.c
-bool atlas_open(Library *library);
-void atlas_close(Library *library);
-bool atlas_fill_misses(Library *library);
+bool atlas_open(Host *host);
+void atlas_close(Host *host);
+bool atlas_fill_misses(Host *host);
 
 // draw.c
-bool draw_open(Library *library);
-void draw_close(Library *library);
-bool draw_due(Library *library);
-void draw_frame(Library *library);
+bool draw_open(Host *host);
+void draw_close(Host *host);
+bool draw_due(Host *host);
+void draw_frame(Host *host);

@@ -34,7 +34,7 @@ static void fill(otk_cell *cells, int count, uint32_t background) {
 }
 
 int main(void) {
-    otk_screen *screen = otk_open("hello");
+    otk_screen *screen = otk_open();
     if (!screen)
         return 1;
     uint32_t typed[TYPED_CAPACITY];

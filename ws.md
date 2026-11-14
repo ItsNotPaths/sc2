@@ -9,37 +9,48 @@ text on screen, keys and mouse. `gap` = the rest of the design. `polish` = a sma
 
 ## Structure
 
-The scaffold is a sketch. Change any of it when a hole needs a different shape.
+OTK is a contract, a tiny library for programs, and a reference host (2026-11-14). A program
+describes its screen in shared memory; a host draws it. Hosts are the product: otkhost is the
+suckless-style one, and anyone can write another from the contract alone.
 
-- `include/otk.h` is the contract. Bindings read only it. Strict C99, also parses as C++.
-  Every constant is an enum, so no FFI needs a macro.
+- **Contract** (`include/`): `otk.h` and `contract.md`. Bindings and hosts read only these.
+  `otk.h` is strict C99, also parses as C++, and every constant is an enum. Every public name
+  has the `otk` prefix, so none can clash in a program the way `Screen` did with Xlib.
+- **libotk** (`libotk/`): what a program links. `otk_open` maps the memory its host named in
+  the environment, `otk_tick` commits, sleeps and receives. No Wayland, no GPU; about 20 KB.
+  `contract.h` holds the contract's rules once, for libotk and otkhost: the sequence counters,
+  and the cells and bytes a node uses.
+- **otkhost** (`host/`): `otkhost PROGRAM [ARGUMENT...]` runs one program and draws it in a
+  Wayland window. `host.h` holds `Host`: one sub-struct per system and every function the files
+  share. One `.c` file per system: `wayland`, `window`, `scale`, `keyboard`, `pointer`,
+  `text_input`, `clipboard`, `settings`, `font`, `flatten`, `graphics`, `atlas`, `draw`, and
+  `main` (start, the poll loop, the program's lifetime). Single threaded.
+- `host/shaders/*.comp` compile to `build/gen/*.spv` and go in with `#embed`.
+- FreeType 2.15.0 is vendored (`download-deps.sh`) and built into otkhost: only the modules in
+  `host/freetype_modules.h` (TrueType, CFF, hinting, smooth rendering).
+- `examples/*.c` are programs: strict C99, linked against `libotk.a` alone. Run them with
+  `build/otkhost build/examples/hello`.
 - Shared structs list fields largest to smallest. The areas come first, so `pixels` sits at
-  offset 0 and always starts on a page. Each writer's fields stay together, so a tick copies
-  one range in and one range out.
-- `src/library.h` holds `Library`: all process-local state (Wayland objects, the GPU side,
-  the commit copy). One sub-struct per system, and every function the files share.
-- One `.c` file per system: `wayland`, `window`, `scale`, `keyboard`, `pointer`, `text_input`,
-  `clipboard`, `settings`, `font`, `flatten`, `graphics`, `atlas`, `draw`.
-- `otk.c` holds the three public functions and the one static `Library` (one window per process).
-- `shaders/*.comp` compile to `build/gen/*.spv` and go in with `#embed`.
-- FreeType 2.15.0 is vendored (`download-deps.sh`) and built in: only the modules in
-  `src/freetype_modules.h` (TrueType, CFF, hinting, smooth rendering).
-- `examples/*.c` build against `libotk.a` as strict C99, the way a binding would use it.
-- A failed `otk_open` says why on stderr, one `otk:` line.
-- Only `otk_*` is visible, in the `.so` and the `.a`, so a program's own names never clash
-  with internal ones. `tests/run.sh` checks this and the C99 header.
+  offset 0, and a one-page header puts `screen` on a page. Each writer's fields stay together.
+- A program with no host fails `otk_open` with one `otk:` line; otkhost fails with one
+  `otkhost:` line.
+- Only `otk_*` is visible in `libotk.a` and `.so`. `tests/run.sh` checks this, the C99 header,
+  and the contract itself with a minimal host (`tests/contract.c`) that needs no Wayland.
 
-Two thread rules:
+The rules between program and host (`include/contract.md` has them in full):
 
-- The library thread writes input only into `incoming`, and only under `lock`. Wayland
-  callbacks run inside the lock, so they write freely. `tick_receive` copies it into `screen`.
-- `tick_publish` copies what the program wrote into `committed`. The library thread reads
-  only `committed`, never `screen`.
+- The host writes input only into `incoming`, between `input_begin` and `input_end`, which keep
+  `input_sequence` odd while it writes. Wayland callbacks run inside one, so they write freely.
+  `input_end` wakes the program only when input changed.
+- Each tick that changed something copies the program's fields and cells into `committed`, with
+  `commit_sequence` odd meanwhile. The host reads `committed` only, and reads again when the
+  sequence shows a commit landed during its read. The one exception is `pixels`, which the host
+  imports from `screen` in place; `sequence` tells it when an image changed.
+- Neither side waits for the other: the program ticks at its own rate, the host draws at vsync
+  from the newest whole commit.
 
-Drawing runs on the library thread, outside the lock. It holds the lock only to flatten
-`committed` and pack its cells for the GPU. It draws when a frame callback has come back and
-something changed: a commit, the window size, or glyphs the last frame missed. A tick that
-changed nothing does not count as a commit.
+The host draws when a frame callback has come back and something changed: a commit, the window
+size, the scale, or glyphs the last frame missed.
 
 Scroll is eighths modulo 8 (`scroll_column`, `scroll_row`), for smoothness only. It never
 moves anything a whole cell: the program moves content by whole cells itself, by rewriting
@@ -54,7 +65,7 @@ Seams for patches (users vendor OTK and patch their own copy; OTK ships no patch
   the settings or the scale, so a scale change and a font change take the same path.
 - A new clipboard MIME type is one row in `data_types` (`clipboard.c`). Row order is the
   drop preference, and within one `DATA_` bit the paste preference.
-- A new system is one file, one sub-struct in `Library`, and one call where it starts.
+- A new system is one file, one sub-struct in `Host`, and one call where it starts.
 
 ## Roadmap
 
@@ -89,9 +100,10 @@ changes. An image ignores its node's scroll. `examples/image.c` shows it.
 Done: `paste_offered` follows the clipboard. Every paste request and every drop gets one
 answer through `paste_sequence`: the bytes, or `paste_length` 0 when the type is not offered,
 the read fails, the bytes run past `OTK_PASTE_CAPACITY`, or a newer request replaces it. Bytes are
-read into the library's own buffer and reach `incoming` only once complete. Copy serves reads
-from `committed->copy`; a newer copy cuts off reads still running. All pipes are non-blocking
-on the library thread's poll, and that thread blocks signals, so a closed pipe gives `EPIPE`.
+read into the host's own buffer and reach `incoming` only once complete. Copy serves reads
+from the host's own copy (`offered`), taken from one whole commit; a newer copy cuts off reads
+still running. All pipes are non-blocking on the host's poll, and the host ignores `SIGPIPE`,
+so a closed pipe gives `EPIPE`.
 `examples/hello.c` copies with Ctrl+C, pastes with Ctrl+V and shows drops.
 
 ### M6: the rest
@@ -108,26 +120,20 @@ it cannot be tested on hedl.
   the pixels grow and the grid stays the same. A scale change reloads the font and empties
   the atlas on the next draw. Tested by flipping 1x and 1.5x at run time in a scratch copy;
   hedl sends 1x.
-- **Settings** are one struct of defaults in `src/settings.c`: font, size, palette, first
+- **Settings** are one struct of defaults in `host/settings.c`: font, size, palette, first
   window size, rows per wheel notch, and the cursor theme and size for the xcursor fallback.
-  The library reads no files and no environment (the fallback no longer reads `XCURSOR_*`).
-  Users patch the values, the same way hosts and programs patch anything else. A missing
-  font or a 0 size fails `otk_open` with one `otk:` line.
+  otkhost reads no files and no environment (the fallback no longer reads `XCURSOR_*`).
+  Users patch the values, the same way they patch anything else. A missing font or a 0 size
+  stops otkhost with one `otkhost:` line.
 `seat-loss` is built (2026-11-13). `atlas-eviction` and `cursor-fallback` are built (2026-11-14).
 
-## Workstream H: host metadata
+## Workstream H: program metadata
 
-Open. On the host route (a terminal hosting OTK programs) the host needs metadata from each
-child: the title, an app_id, a size request, see-through areas. Today the title only goes to
-`otk_open`, so a host never sees it. Options:
-
-- Fields in `otk_screen`, written by the program. Same model as everything else: no messages,
-  works on all three routes, and the remote route syncs it with the other bytes. The title
-  could then change at run time (a file browser showing its path).
-- A socket next to the memfd. Needed only if something must pass file descriptors.
-
-Every public name has the `otk` prefix (2026-11-14): `otk_screen`, `otk_node`, `otk_cell`, and
-`OTK_` on every constant, so none can clash in a program the way `Screen` did with Xlib.
+Open. The host now owns the window, so a program has no way to name itself: `otk_open` takes no
+title, and otkhost titles the window with the program's file name. A host also wants an app_id,
+maybe a size request and see-through areas. The likely shape is a few fields the program
+writes, read from `committed` like everything else; the title could then change at run time
+(a file browser showing its path). Not decided: which fields earn a place in `otk_screen`.
 
 ## Workstream C: core
 
@@ -148,7 +154,7 @@ GNOME draws no borders for clients. Whether the library draws its own is not dec
 _1 holes, 1 marks, 1 ready. Generated by `swiss sync`; edits inside this block are lost._
 
 - **scale-redesign** · window · ready
-  - [src/scale.c:3](src/scale.c#L3) · gap · stopgap: the cell is font_size times the scale, so a scale change reloads the font like a font_size change; to be redesigned with the glyph grid size.
+  - [host/scale.c:3](host/scale.c#L3) · gap · stopgap: the cell is font_size times the scale, so a scale change reloads the font like a font_size change; to be redesigned with the glyph grid size.
 
 <!-- /skeleton -->
 
@@ -161,7 +167,7 @@ Input methods cannot be checked on hedl. They need sway or Hyprland with fcitx5.
 _1 holes, 1 marks, 1 ready. Generated by `swiss sync`; edits inside this block are lost._
 
 - **input-method** · input · ready
-  - [src/text_input.c:3](src/text_input.c#L3) · gap · makes no text-input-v3 object; composition stays empty and committed text never reaches the ring.
+  - [host/text_input.c:3](host/text_input.c#L3) · gap · makes no text-input-v3 object; composition stays empty and committed text never reaches the ring.
 
 <!-- /skeleton -->
 

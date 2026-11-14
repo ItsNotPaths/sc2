@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Checks the promises bindings rely on. Run after ./build.sh.
+# Checks the promises bindings and hosts rely on. Run after ./build.sh.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -19,5 +19,10 @@ if [ -n "$extra" ]; then
     echo "$extra" >&2
     exit 1
 fi
+
+echo "the contract between libotk and a host"
+"${CC:-clang}" -std=c23 -D_GNU_SOURCE -Wall -Wextra -I "$ROOT/include" -I "$ROOT/libotk" \
+    "$ROOT/tests/contract.c" "$BUILD/libotk.a" -o "$BUILD/contract"
+"$BUILD/contract"
 
 echo "all passed"
