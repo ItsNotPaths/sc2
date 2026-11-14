@@ -1,0 +1,10 @@
+#version 460
+
+// One invocation per screen pixel. Walks the flat node list from the top and
+// takes the first node that is not clear at that point.
+// (hole draw-shader :tags draw :sev blocker :needs node-flatten) writes nothing; no node walk, no cells through the atlas, no pixels, no misses recorded.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+void main() {
+}
