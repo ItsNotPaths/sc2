@@ -13,6 +13,7 @@ const uint BOLD_BIT       = 1u << 29;
 const uint UNDERLINE_BIT  = 1u << 30;
 const uint CLEAR_BIT      = 1u << 31;
 const uint NO_SLOT        = 0xffffffffu;
+const uint MISS_PROBES    = 8u;  // a crowded miss table drops the key; the next frame records it
 
 layout(buffer_reference, std430) readonly buffer Cells { uint cells[]; };
 layout(buffer_reference, std430) readonly buffer Coverage { uint words[]; };     // a byte per pixel, 4 per word
@@ -52,13 +53,18 @@ uint glyph_hash(uint key) {
     return key * 2654435761u;
 }
 
-// Each missing glyph goes in once, however many pixels meet it.
+// Each missing glyph goes in once. Plain reads first: most pixels find their key already there.
 void record_miss(uint key) {
     uint index = glyph_hash(key) & frame.miss_table_mask;
-    for (uint probe = 0u; probe <= frame.miss_table_mask; probe++) {
-        uint previous = atomicCompSwap(frame.miss_table.keys[index], 0u, key);
-        if (previous == 0u || previous == key)
+    for (uint probe = 0u; probe < MISS_PROBES; probe++) {
+        uint entry_key = frame.miss_table.keys[index];
+        if (entry_key == key)
             return;
+        if (entry_key == 0u) {
+            uint previous = atomicCompSwap(frame.miss_table.keys[index], 0u, key);
+            if (previous == 0u || previous == key)
+                return;
+        }
         index = (index + 1u) & frame.miss_table_mask;
     }
 }
