@@ -59,10 +59,10 @@ typedef struct {
     // areas; pixels at offset 0 starts on a page
     uint8_t  pixels[OTK_PIXEL_CAPACITY];
     otk_cell cells[OTK_CELL_CAPACITY];
-    uint8_t  paste[OTK_PASTE_CAPACITY];      // written by library
+    uint8_t  paste[OTK_PASTE_CAPACITY];      // written by host
     uint8_t  copy[OTK_COPY_CAPACITY];        // written by program
 
-    // written by library, copied in at each tick
+    // written by host, copied in at each tick
     uint32_t text[OTK_TEXT_CAPACITY];
     uint8_t  key_transitions[512];           // by scancode; odd means held
     uint32_t composition[32];                // input method preview
@@ -73,6 +73,7 @@ typedef struct {
     uint32_t paste_length;                   // 0 when the paste or drop failed
     int32_t  wheel_total;                    // eighths of a row
     uint16_t columns, rows;
+    uint16_t host_font_size;                 // the host's own font_size, to zoom from
     int16_t  mouse_column, mouse_row;        // eighths of a cell
     int16_t  drop_column, drop_row;          // eighths, where the drop happened
     uint8_t  mouse_node;                     // topmost node under the mouse, or OTK_MOUSE_OUTSIDE
@@ -91,6 +92,7 @@ typedef struct {
     uint32_t copy_length;
     uint16_t tick_rate;                      // ticks per second, default 240
     uint16_t idle_tick_rate;                 // ticks per second while idle; 0 sleeps until input
+    uint16_t font_size;                      // cell height in pixels at scale 1; 0 uses host_font_size
     uint8_t  paste_request_data;             // one OTK_DATA_ bit from paste_offered
     uint8_t  copy_data;                      // OTK_DATA_ bits the copy is offered as
 } otk_screen;

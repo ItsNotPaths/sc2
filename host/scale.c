@@ -1,6 +1,6 @@
 #include "host.h"
 
-// (hole scale-redesign :tags window :sev gap) stopgap: the cell is font_size times the scale, so a scale change reloads the font like a font_size change; to be redesigned with the glyph grid size.
+// The cell is font_size times the scale, so a scale change reloads the font like a font_size change.
 
 static void preferred_scale(void *data, struct wp_fractional_scale_v1 *, uint32_t scale) {
     ((Host *)data)->window.scale = scale;

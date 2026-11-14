@@ -198,6 +198,7 @@ typedef struct {
 typedef struct {
     char     title[256], app_id[64];           // terminated, not yet checked as UTF-8
     uint32_t paste_request, copy_sequence;
+    uint16_t font_size;
     uint8_t  paste_request_data;
 } Commit;  // the small fields of one whole commit that the host acts on
 
@@ -228,6 +229,7 @@ typedef struct {
     int         program_exit;                  // pidfd; readable once the program exits
     pid_t       program_id;
     uint32_t    input_serial;                  // of the last input event; copy needs it
+    uint16_t    font_size_asked;               // by the program's last commit; 0 asks for none
 
     struct wl_display *display;
     Globals   globals;

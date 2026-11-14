@@ -70,6 +70,13 @@ eventfd.
 commit, so a program can change its title while it runs. An empty `title` leaves the naming to
 the host; otkhost shows the program's file name.
 
+## Font size
+
+The program picks its text size with `font_size`: the cell height in pixels at scale 1, or 0 for
+the host's own size, which the host reports in `host_font_size`. The host multiplies it by the
+output's scale, works out how many cells fit, and reports `columns` and `rows`. A program that
+zooms on Ctrl+= writes a new `font_size` and lays out in the grid that comes back.
+
 ## Closing
 
 The host sets `closed` in `incoming`. `otk_tick` then returns 0 and the program exits. The
@@ -89,14 +96,14 @@ whatever the program does:
 - It gives up on a read when the program keeps `commit_sequence` odd, and tries again at the
   next commit. otkhost waits 100 ms.
 - It bounds its own work per frame. otkhost packs at most `OTK_CELL_CAPACITY` cells, however
-  many nodes share them.
+  many nodes share them, and holds `font_size` between 6 and 200.
 - It kills a program that has not exited some time after `closed`. otkhost waits 2 s.
 
 `tests/hostile.c` breaks the contract on purpose, and `tests/run.sh` runs it under otkhost.
 
 ## What the contract leaves to the host
 
-The font and cell size, the scale, which keys reach the program, how the clipboard is reached,
+The font file, the scale, which keys reach the program, how the clipboard is reached,
 and how many programs it shows and where. otkhost shows one program in one Wayland window.
 
 ## Versions

@@ -5,6 +5,7 @@
 #include "otk.h"
 
 enum { LINE_COUNT = 200, TYPED_CAPACITY = 256, CONTROL_C = 0x03, CONTROL_V = 0x16 };
+enum { SCANCODE_LEFT_CONTROL = 29, SCANCODE_RIGHT_CONTROL = 97, ZOOM_STEP = 2 };
 
 static otk_cell cell(uint32_t codepoint, uint32_t foreground, uint32_t background, uint32_t bold) {
     return codepoint << OTK_CELL_CODEPOINT_SHIFT | foreground << OTK_CELL_FOREGROUND_SHIFT
@@ -41,11 +42,19 @@ int main(void) {
     uint32_t typed[TYPED_CAPACITY];
     int typed_length = 0;
     uint32_t text_read_index = 0, paste_sequence = 0;
-    char paste_line[128] = "Ctrl+C copies the typed line, Ctrl+V pastes text, or drop something here";
+    char paste_line[128] = "Ctrl+C copies the line, Ctrl+V pastes, Ctrl+= Ctrl+- Ctrl+0 zoom, or drop something here";
     while (otk_tick(screen)) {
+        int control = screen->key_transitions[SCANCODE_LEFT_CONTROL] % 2 || screen->key_transitions[SCANCODE_RIGHT_CONTROL] % 2;
+        int font_size = screen->font_size ? screen->font_size : screen->host_font_size;
         for (; text_read_index != screen->text_write_index; text_read_index++) {
             uint32_t codepoint = screen->text[text_read_index % OTK_TEXT_CAPACITY];
-            if (codepoint == CONTROL_C) {
+            if (control && (codepoint == '=' || codepoint == '+')) {
+                screen->font_size = font_size + ZOOM_STEP;
+            } else if (control && codepoint == '-' && font_size > ZOOM_STEP) {
+                screen->font_size = font_size - ZOOM_STEP;
+            } else if (control && codepoint == '0') {
+                screen->font_size = 0;
+            } else if (codepoint == CONTROL_C) {
                 screen->copy_length = 0;
                 for (int index = 0; index < typed_length; index++)
                     screen->copy_length += utf8_encode(typed[index], &screen->copy[screen->copy_length]);

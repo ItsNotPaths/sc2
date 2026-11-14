@@ -1,5 +1,7 @@
 #include "host.h"
 
+enum { FONT_SIZE_LOWEST = 6, FONT_SIZE_HIGHEST = 200 };  // a program's font_size is held to these
+
 // Users vendor OTK and patch these. otkhost stops when the font is missing.
 static const Settings defaults = {
     .font_path = "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
@@ -16,8 +18,12 @@ static const Settings defaults = {
 };
 
 // Runs at start, and before each draw inside an input section. The seam for a setting that
-// changes at run time: a patch takes it from committed here, such as a font_size field the
-// program writes. A font or palette change shows on that draw.
+// changes at run time. A font or palette change shows on that draw.
 void settings_update(Host *host) {
     host->settings = defaults;
+    host->incoming->host_font_size = defaults.font_size;
+    uint16_t asked = host->font_size_asked;
+    if (asked)
+        host->settings.font_size = asked < FONT_SIZE_LOWEST ? FONT_SIZE_LOWEST
+                                 : asked > FONT_SIZE_HIGHEST ? FONT_SIZE_HIGHEST : asked;
 }

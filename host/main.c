@@ -70,6 +70,7 @@ static bool commit_take(Host *host, Commit *commit) {
         commit->paste_request = committed->paste_request;
         commit->paste_request_data = committed->paste_request_data;
         commit->copy_sequence = committed->copy_sequence;
+        commit->font_size = committed->font_size;
     } while (commit_read_retry(host, &read));
     commit->title[sizeof commit->title - 1] = 0;
     commit->app_id[sizeof commit->app_id - 1] = 0;
@@ -167,6 +168,7 @@ static bool host_run(Host *host) {
         if (waiting[1].revents && read(host->commit_event, &count, sizeof count) > 0 && commit_take(host, &commit)) {
             clipboard_serve(host, &commit);
             window_name(host, commit.title, commit.app_id);
+            host->font_size_asked = commit.font_size;  // settings_update applies it at the next draw
         }
         if (waiting[2].revents && read(host->repeat_timer, &count, sizeof count) > 0)
             keyboard_repeat(host);
