@@ -1,8 +1,9 @@
 #include <linux/input-event-codes.h>
+#include <stdlib.h>
 
 #include "library.h"
 
-enum { ROWS_PER_NOTCH = 3 };
+enum { ROWS_PER_NOTCH = 3, DEFAULT_CURSOR_SIZE = 24 };
 
 // Runs after the mouse moves, enters or leaves, and after each new layout.
 void pointer_hit(Library *library) {
@@ -20,6 +21,36 @@ static void pointer_move(Library *library, wl_fixed_t x, wl_fixed_t y) {
     pointer_hit(library);
 }
 
+// Without cursor-shape-v1: the default cursor from the user's xcursor theme.
+static void cursor_theme_load(Library *library) {
+    Pointer *pointer = &library->pointer;
+    const char *size_text = getenv("XCURSOR_SIZE");
+    int size = size_text ? atoi(size_text) : 0;
+    pointer->cursor_theme = wl_cursor_theme_load(getenv("XCURSOR_THEME"), size > 0 ? size : DEFAULT_CURSOR_SIZE,
+                                                 library->globals.shared_memory);
+    if (!pointer->cursor_theme)
+        return;
+    struct wl_cursor *cursor = wl_cursor_theme_get_cursor(pointer->cursor_theme, "default");
+    if (!cursor)
+        cursor = wl_cursor_theme_get_cursor(pointer->cursor_theme, "left_ptr");
+    if (!cursor)
+        return;
+    pointer->cursor_image = cursor->images[0];
+    pointer->cursor_surface = wl_compositor_create_surface(library->globals.compositor);
+    wl_surface_attach(pointer->cursor_surface, wl_cursor_image_get_buffer(pointer->cursor_image), 0, 0);
+    wl_surface_damage_buffer(pointer->cursor_surface, 0, 0, INT32_MAX, INT32_MAX);
+    wl_surface_commit(pointer->cursor_surface);
+}
+
+static void cursor_set(Library *library, uint32_t serial) {
+    Pointer *pointer = &library->pointer;
+    if (pointer->cursor_shape)
+        wp_cursor_shape_device_v1_set_shape(pointer->cursor_shape, serial, WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT);
+    else if (pointer->cursor_surface)
+        wl_pointer_set_cursor(pointer->pointer, serial, pointer->cursor_surface,
+                              pointer->cursor_image->hotspot_x, pointer->cursor_image->hotspot_y);
+}
+
 // Keeps the fraction, so slow touchpad scrolls still add up.
 static void wheel_add(Library *library, double eighths) {
     Pointer *pointer = &library->pointer;
@@ -29,11 +60,9 @@ static void wheel_add(Library *library, double eighths) {
     library->incoming->wheel_total += whole;
 }
 
-// (hole cursor-fallback :tags input :sev polish) without cursor-shape-v1 no cursor is set; some compositors then show none.
 static void pointer_enter(void *data, struct wl_pointer *, uint32_t serial, struct wl_surface *, wl_fixed_t x, wl_fixed_t y) {
     Library *library = data;
-    if (library->pointer.cursor_shape)
-        wp_cursor_shape_device_v1_set_shape(library->pointer.cursor_shape, serial, WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT);
+    cursor_set(library, serial);
     library->pointer.inside = true;
     pointer_move(library, x, y);
 }
@@ -99,6 +128,8 @@ void pointer_attach(Library *library) {
     wl_pointer_add_listener(pointer->pointer, &pointer_listener, library);
     if (library->globals.cursor_shape_manager)
         pointer->cursor_shape = wp_cursor_shape_manager_v1_get_pointer(library->globals.cursor_shape_manager, pointer->pointer);
+    else if (library->globals.shared_memory)
+        cursor_theme_load(library);
 }
 
 void pointer_detach(Library *library) {
@@ -107,6 +138,10 @@ void pointer_detach(Library *library) {
         return;
     if (pointer->cursor_shape)
         wp_cursor_shape_device_v1_destroy(pointer->cursor_shape);
+    if (pointer->cursor_surface)
+        wl_surface_destroy(pointer->cursor_surface);
+    if (pointer->cursor_theme)
+        wl_cursor_theme_destroy(pointer->cursor_theme);
     wl_pointer_release(pointer->pointer);
     *pointer = (Pointer){};
     pointer_hit(library);

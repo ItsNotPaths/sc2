@@ -8,7 +8,7 @@ BUILD="$ROOT/build"
 PROTOCOLS="$ROOT/vendor/wayland-protocols"
 FREETYPE="$ROOT/vendor/freetype"
 CC=${CC:-clang}
-PACKAGES=(wayland-client xkbcommon vulkan)
+PACKAGES=(wayland-client wayland-cursor xkbcommon vulkan)
 
 PROTOCOL_FILES=(
     stable/xdg-shell/xdg-shell.xml

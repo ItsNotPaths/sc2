@@ -7,6 +7,7 @@
 #define VK_USE_PLATFORM_WAYLAND_KHR
 #include <vulkan/vulkan.h>
 #include <wayland-client.h>
+#include <wayland-cursor.h>
 #include <xkbcommon/xkbcommon.h>
 #include <ft2build.h>
 #include FT_FREETYPE_H
@@ -29,6 +30,7 @@ enum {  // powers of two, so draw.comp wraps with a mask
 typedef struct {
     struct wl_compositor                  *compositor;
     struct wl_seat                        *seat;
+    struct wl_shm                         *shared_memory;
     struct wl_data_device_manager         *data_device_manager;
     struct xdg_wm_base                    *window_manager;
     struct wp_viewporter                  *viewporter;
@@ -60,6 +62,9 @@ typedef struct {
 typedef struct {
     struct wl_pointer                *pointer;
     struct wp_cursor_shape_device_v1 *cursor_shape;
+    struct wl_cursor_theme           *cursor_theme;    // only without cursor-shape-v1
+    struct wl_surface                *cursor_surface;
+    struct wl_cursor_image           *cursor_image;
     uint32_t axis_source;                      // of the current pointer frame
     double   wheel_remainder;                  // eighths not yet in wheel_total
     bool     inside;                           // the mouse is over the window

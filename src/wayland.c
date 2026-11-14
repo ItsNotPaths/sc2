@@ -12,6 +12,7 @@ typedef struct {
 static const WantedGlobal wanted_globals[] = {
     {&wl_compositor_interface,                  6, offsetof(Globals, compositor)},
     {&wl_seat_interface,                        8, offsetof(Globals, seat)},
+    {&wl_shm_interface,                         1, offsetof(Globals, shared_memory)},
     {&wl_data_device_manager_interface,         3, offsetof(Globals, data_device_manager)},
     {&xdg_wm_base_interface,                    5, offsetof(Globals, window_manager)},
     {&wp_viewporter_interface,                  1, offsetof(Globals, viewporter)},
