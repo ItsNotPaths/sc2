@@ -49,10 +49,10 @@ typedef struct {
     uint32_t sequence;                       // bumped after each image frame
     int16_t  column, row;                    // in parent's content
     uint16_t columns, rows;                  // visible area; clips children
-    int16_t  scroll_column, scroll_row;      // eighths of a cell
     uint16_t content_width, content_height;  // cells, or pixels for images
     uint8_t  kind;
     uint8_t  parent;                         // lower index than this node
+    uint8_t  scroll_column, scroll_row;      // eighths, used modulo 8: smooth scroll only, never a whole cell
 } Node;
 
 typedef struct {

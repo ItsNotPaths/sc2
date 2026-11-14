@@ -44,12 +44,14 @@ int main(void) {
         Node *window = &screen->nodes[0], *box = &screen->nodes[1], *lines = &screen->nodes[2];
         *window = (Node){.kind = NODE_CELLS, .columns = columns, .rows = rows,
                          .content_width = columns, .content_height = rows};
+        // The box scrolls by eighths only; whole lines move by rewriting which lines the grid holds.
         int scroll_limit = (LINE_COUNT - box_rows) * 8;
         int scroll = screen->wheel_total < 0 ? 0 : screen->wheel_total > scroll_limit ? scroll_limit : screen->wheel_total;
+        int first_line = scroll / 8, shown_lines = box_rows + 1;
         *box = (Node){.kind = NODE_EMPTY, .parent = 0, .column = 2, .row = 6, .columns = box_columns, .rows = box_rows,
-                      .scroll_row = scroll};
-        *lines = (Node){.kind = NODE_CELLS, .parent = 1, .columns = box_columns, .rows = LINE_COUNT,
-                        .content_width = box_columns, .content_height = LINE_COUNT,
+                      .scroll_row = (uint8_t)scroll};
+        *lines = (Node){.kind = NODE_CELLS, .parent = 1, .columns = box_columns, .rows = shown_lines,
+                        .content_width = box_columns, .content_height = shown_lines,
                         .storage_offset = columns * rows};
 
         Cell *cells = screen->cells;
@@ -69,11 +71,12 @@ int main(void) {
             cells[4 * columns + typed_length] = cell(' ', 6, 0, 0) | 1u << CELL_UNDERLINE_SHIFT;
 
         Cell *line_cells = &cells[lines->storage_offset];
-        fill(line_cells, box_columns * LINE_COUNT, 1);
-        for (int row = 0; row < LINE_COUNT; row++) {
+        fill(line_cells, box_columns * shown_lines, 1);
+        for (int row = 0; row < shown_lines && first_line + row < LINE_COUNT; row++) {
+            int line_number = first_line + row;
             char line[64];
-            snprintf(line, sizeof line, "line %d  The quick brown fox jumps over the lazy dog", row + 1);
-            put(line_cells, box_columns, 1, row, line, 8 + row % 8, 1);
+            snprintf(line, sizeof line, "line %d  The quick brown fox jumps over the lazy dog", line_number + 1);
+            put(line_cells, box_columns, 1, row, line, 8 + line_number % 8, 1);
         }
     }
     otk_close(screen);

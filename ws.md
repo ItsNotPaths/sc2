@@ -41,6 +41,10 @@ Drawing runs on the library thread, outside the lock. It holds the lock only to 
 something changed: a commit, the window size, or glyphs the last frame missed. A tick that
 changed nothing does not count as a commit.
 
+Scroll is eighths modulo 8 (`scroll_column`, `scroll_row`), for smoothness only. It never
+moves anything a whole cell: the program moves content by whole cells itself, by rewriting
+cells, so nothing sits between cells at rest.
+
 Seams for patches (users vendor OTK and patch their own copy; OTK ships no patches):
 
 - A new protocol is one row in `wanted_globals` (`wayland.c`) and one field in `Globals`.

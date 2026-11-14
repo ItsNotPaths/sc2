@@ -6,7 +6,7 @@
 #include "library.h"
 
 static_assert(offsetof(otk_screen, pixels) == 0, "graphics import needs pixels on a page");
-static_assert(sizeof(Node) == 28, "bindings read the Node layout from otk.h");
+static_assert(sizeof(Node) == 24, "bindings read the Node layout from otk.h");
 static_assert(offsetof(otk_screen, text) + sizeof(uint32_t[TEXT_CAPACITY]) == offsetof(otk_screen, key_transitions),
               "tick_receive copies the ring, then every field from key_transitions to nodes");
 

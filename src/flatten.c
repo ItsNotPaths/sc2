@@ -32,8 +32,8 @@ void flatten(const Node nodes[NODE_CAPACITY], Rectangle window, Placement placem
             placement->area = (Rectangle){left, top, left + node->columns * 8, top + node->rows * 8};
             placement->clip = intersect(placement->area, parent->clip);
         }
-        placement->content_left = placement->area.left - node->scroll_column;
-        placement->content_top = placement->area.top - node->scroll_row;
+        placement->content_left = placement->area.left - node->scroll_column % 8;
+        placement->content_top = placement->area.top - node->scroll_row % 8;
     }
 }
 
