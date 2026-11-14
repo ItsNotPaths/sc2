@@ -6,10 +6,6 @@
 
 enum { KEY_CAPACITY = 512, XKB_KEYCODE_OFFSET = 8 };  // xkb keycodes are evdev scancodes + 8
 
-static struct timespec from_nanoseconds(uint64_t nanoseconds) {
-    return (struct timespec){.tv_sec = nanoseconds / 1000000000, .tv_nsec = nanoseconds % 1000000000};
-}
-
 // Scancode 0 stops the repeat.
 static void repeat_arm(Library *library, uint32_t scancode) {
     Keyboard *keyboard = &library->keyboard;

@@ -204,6 +204,8 @@ typedef struct {
     atomic_bool     running, stopping;
     atomic_uint     commit_count;              // bumped by each tick that changed something
     uint64_t        next_tick;                 // CLOCK_MONOTONIC nanoseconds
+    bool            input_changed;             // the last tick brought input
+    bool            output_changed;            // the last tick's program changed something
     uint32_t        input_serial;              // of the last input event; copy needs it
 
     struct wl_display *display;
@@ -229,6 +231,10 @@ static inline int64_t floor_divide(int64_t dividend, int64_t divisor) {
 // wl_fixed is 24.8 fixed point, in pixels.
 static inline int16_t fixed_to_eighths(wl_fixed_t position, uint32_t cell_size) {
     return floor_divide((int64_t)position * 8, (int64_t)cell_size * 256);
+}
+
+static inline struct timespec from_nanoseconds(uint64_t nanoseconds) {
+    return (struct timespec){.tv_sec = nanoseconds / 1000000000, .tv_nsec = nanoseconds % 1000000000};
 }
 
 // For key_transitions and mouse_transitions: moves only when the held state changes. Odd means held.

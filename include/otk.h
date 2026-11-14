@@ -88,7 +88,7 @@ typedef struct {
     uint32_t copy_sequence;                  // bump after writing copy
     uint32_t copy_length;
     uint16_t tick_rate;                      // ticks per second, default 240
-    uint8_t  animating;
+    uint16_t idle_tick_rate;                 // ticks per second while idle; 0 sleeps until input
     uint8_t  paste_request_data;             // one DATA_ bit from paste_offered
     uint8_t  copy_data;                      // DATA_ bits the copy is offered as
 } otk_screen;

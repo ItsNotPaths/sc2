@@ -59,7 +59,11 @@ bool library_start(Library *library) {
     if (library->wake_event < 0 || library->repeat_timer < 0)
         return failed("cannot make the wake event or the repeat timer");
     pthread_mutex_init(&library->lock, nullptr);
-    pthread_cond_init(&library->input_arrived, nullptr);
+    pthread_condattr_t monotonic;  // tick_wait's deadlines are CLOCK_MONOTONIC
+    pthread_condattr_init(&monotonic);
+    pthread_condattr_setclock(&monotonic, CLOCK_MONOTONIC);
+    pthread_cond_init(&library->input_arrived, &monotonic);
+    pthread_condattr_destroy(&monotonic);
     // Signals go to the program's threads. A write to a closed clipboard pipe then fails with EPIPE.
     sigset_t every_signal, program_signals;
     sigfillset(&every_signal);

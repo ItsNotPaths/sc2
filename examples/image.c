@@ -72,7 +72,6 @@ int main(void) {
             .content_width = IMAGE_COLUMNS, .content_height = IMAGE_ROWS,
         };
         image_draw(screen->pixels, phase);
-        screen->animating = 1;
     }
     otk_close(screen);
     return 0;
