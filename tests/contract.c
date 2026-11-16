@@ -1,6 +1,8 @@
 // A minimal host using only the contract, running itself as the program. Protects what any host
 // relies on: whole commits, input waking an idle program, closed ending it, versions checked.
 #include <poll.h>
+#include <pthread.h>
+#include <stdatomic.h>
 #include <sched.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,20 +29,32 @@ static void check(bool passed, const char *requirement) {
     failures += !passed;
 }
 
-// The program: shows what was typed, or "ready" before anything is.
+static atomic_bool woken;
+
+// The program's own thread: finishes its work while the program is idle, then wakes it.
+static void *worker_run(void *) {
+    usleep(300000);
+    atomic_store(&woken, true);
+    uint64_t one = 1;
+    write(atoi(getenv("SC2_INPUT_FD")), &one, sizeof one);
+    return nullptr;
+}
+
+// The program: shows what was typed, else "woken" once its thread is done, else "ready".
 static int program_run(void) {
     sc2_screen *screen = sc2_open();
     if (!screen)
         return 1;
-    uint32_t typed = 0;
+    pthread_t worker;
+    pthread_create(&worker, nullptr, worker_run, nullptr);
     while (sc2_tick(screen)) {
-        typed = screen->text_write_index;
+        uint32_t typed = screen->text_write_index;
         screen->nodes[0] = (sc2_node){.kind = SC2_NODE_CELLS, .columns = COLUMNS, .rows = 1,
                                       .content_width = COLUMNS, .content_height = 1};
-        const char *ready = "ready";
+        const char *shown = atomic_load(&woken) ? "woken" : "ready";
         for (int column = 0; column < COLUMNS; column++)
             screen->cells[column] = typed ? (column < (int)typed ? screen->text[column] : ' ')
-                                          : (column < 5 ? (uint32_t)ready[column] : ' ');
+                                          : (column < 5 ? (uint32_t)shown[column] : ' ');
     }
     sc2_close(screen);
     return 0;
@@ -135,6 +149,7 @@ int main(int argument_count, char **arguments) {
 
     Hosted hosted = program_start(arguments[0], SC2_VERSION);
     check(commit_shows(&hosted, "ready   "), "the program's drawing arrives in a whole commit");
+    check(commit_shows(&hosted, "woken   "), "the program's own thread wakes it through the input eventfd");
 
     input_write(&hosted, "hi", false);
     check(commit_shows(&hosted, "hi      "), "typed text wakes an idle program and reaches it");

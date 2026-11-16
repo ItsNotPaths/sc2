@@ -90,23 +90,17 @@ static bool input_waiting(void) {
     return region_differs(&program.shared->incoming, &program.shared->screen, INPUT_START, INPUT_SIZE);
 }
 
-// Sleeps until input arrives, or until the next idle tick when idle_tick_rate is set.
+// Sleeps until the input eventfd is written, by the host or by the program's own threads, or
+// until the next idle tick when idle_tick_rate is set.
 static void idle_wait(void) {
+    if (input_waiting())
+        return;
     uint16_t idle_tick_rate = program.shared->screen.idle_tick_rate;
-    uint64_t deadline = now() + (idle_tick_rate ? 1000000000 / idle_tick_rate : 0);
+    int timeout = idle_tick_rate ? (1000 + idle_tick_rate - 1) / idle_tick_rate : -1;
     struct pollfd waiting = {.fd = program.input_event, .events = POLLIN};
-    while (!input_waiting()) {
-        int timeout = -1;
-        if (idle_tick_rate) {
-            uint64_t current = now();
-            if (current >= deadline)
-                return;
-            timeout = (int)((deadline - current + 999999) / 1000000);
-        }
-        uint64_t count;
-        if (poll(&waiting, 1, timeout) > 0)
-            read(program.input_event, &count, sizeof count);
-    }
+    uint64_t count;
+    if (poll(&waiting, 1, timeout) > 0)
+        read(program.input_event, &count, sizeof count);
 }
 
 // A tick that brought no input and changed nothing is idle: the next one waits for input.

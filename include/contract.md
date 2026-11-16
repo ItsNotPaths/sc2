@@ -57,7 +57,8 @@ offset 0 of `screen`, and `screen` starts after the one-page header, so a host c
 
 The host writes `incoming`, then writes 1 to the input eventfd if any input field changed. At
 each tick the program copies `incoming` into `screen`. An idle program sleeps on the input
-eventfd.
+eventfd, and any write to it runs one tick. The program's own threads may write it too, to have
+their work drawn; only the thread calling `sc2_tick` touches the screen.
 
 - Text: the host writes ring entries, then advances `text_write_index`.
 - Paste: the host writes the bytes into `paste`, then `paste_length`, `paste_data` and
