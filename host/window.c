@@ -105,6 +105,8 @@ void window_resize(Host *host) {
         wp_viewport_set_destination(window->viewport, window->surface_width, window->surface_height);
     host->incoming->columns = window->width / host->font.cell_width;
     host->incoming->rows = window->height / host->font.cell_height;
+    host->incoming->cell_width = host->font.cell_width;
+    host->incoming->cell_height = host->font.cell_height;
 }
 
 // Bytes in the valid UTF-8 sequence at text (RFC 3629: no overlong forms, no surrogates,

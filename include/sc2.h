@@ -80,6 +80,7 @@ typedef struct {
     uint32_t paste_length;                   // 0 when the paste or drop failed
     int32_t  wheel_total;                    // eighths of a row
     uint16_t columns, rows;
+    uint16_t cell_width, cell_height;        // device pixels; an image with this many per cell draws 1:1
     uint16_t host_font_size;                 // the host's own font_size, to zoom from
     int16_t  mouse_column, mouse_row;        // eighths of a cell
     int16_t  drop_column, drop_row;          // eighths, where the drop happened
@@ -109,7 +110,7 @@ typedef struct {
 // SC2_SHARED_FD, a memfd holding sc2_shared; SC2_COMMIT_FD, an eventfd the program writes after
 // each commit; SC2_INPUT_FD, an eventfd the host writes after input changes.
 
-enum { SC2_MAGIC = 0x322a6373, SC2_VERSION = 1 };  // magic is "sc*2" in memory
+enum { SC2_MAGIC = 0x322a6373, SC2_VERSION = 2 };  // magic is "sc*2" in memory
 
 // A region's sequence is odd while its writer writes it. A reader that saw an odd or changed
 // sequence across its read saw a torn region, and reads again.

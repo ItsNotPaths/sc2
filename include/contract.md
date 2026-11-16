@@ -81,6 +81,10 @@ the host's own size, which the host reports in `host_font_size`. The host multip
 output's scale, works out how many cells fit, and reports `columns` and `rows`. A program that
 zooms on Ctrl+= writes a new `font_size` and lays out in the grid that comes back.
 
+The host also reports `cell_width` and `cell_height`: one cell in device pixels. An image node
+whose `content_width` and `content_height` are its `columns` and `rows` times these draws one
+image pixel per screen pixel, so a program can draw its own glyphs, lines and fills sharp.
+
 ## Styles
 
 A cell names one of the program's `styles`: a foreground and a background in RGBA, with bold,
