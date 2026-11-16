@@ -204,7 +204,7 @@ void draw_close(Host *host) {
 bool draw_due(Host *host) {
     const Window *window = &host->window;
     const VkExtent2D extent = host->graphics.extent;
-    if (!window->configured || window->frame_pending)
+    if (!window->configured || window->frame_pending || !window->named)
         return false;
     return sequence_read_begin(&host->shared->header.commit_sequence) != host->drawing.drawn_sequence
         || !font_matches(&host->font, &host->settings, window->scale)

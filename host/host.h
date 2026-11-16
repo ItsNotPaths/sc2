@@ -63,6 +63,7 @@ typedef struct {
     uint32_t scale;                            // 120ths, from the compositor; font.scale is the one drawn
     bool     configured;                       // the first configure is acknowledged
     bool     frame_pending;                    // a frame callback is outstanding
+    bool     named;                            // the program's first commit is in, so rules see its app id
 } Window;
 
 typedef struct {

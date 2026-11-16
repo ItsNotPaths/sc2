@@ -71,6 +71,9 @@ their work drawn; only the thread calling `sc2_tick` touches the screen.
 commit, so a program can change its title while it runs. An empty `title` leaves the naming to
 the host; sc2host shows the program's file name.
 
+The host shows no window until the first commit, so a compositor sees the first commit's
+`app_id` before the window maps; window rules match on it. Set `app_id` before the first tick.
+
 ## Font size
 
 The program picks its text size with `font_size`: the cell height in pixels at scale 1, or 0 for
