@@ -19,6 +19,7 @@ static const WantedGlobal wanted_globals[] = {
     {&wp_fractional_scale_manager_v1_interface, 1, offsetof(Globals, fractional_scale_manager)},
     {&wp_cursor_shape_manager_v1_interface,     1, offsetof(Globals, cursor_shape_manager)},
     {&zwp_text_input_manager_v3_interface,      1, offsetof(Globals, text_input_manager)},
+    {&zwlr_layer_shell_v1_interface,            4, offsetof(Globals, layer_shell)},
 };
 
 static void registry_global(void *data, struct wl_registry *registry, uint32_t name,

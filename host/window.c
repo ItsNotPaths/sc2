@@ -49,6 +49,49 @@ static const struct xdg_toplevel_listener toplevel_listener = {
     .wm_capabilities = toplevel_wm_capabilities,
 };
 
+static void layer_surface_configure(void *data, struct zwlr_layer_surface_v1 *layer_surface, uint32_t serial,
+                                    uint32_t width, uint32_t height) {
+    Host *host = data;
+    Window *window = &host->window;
+    zwlr_layer_surface_v1_ack_configure(layer_surface, serial);
+    if (width && height) {
+        window->surface_width = width;
+        window->surface_height = height;
+    }
+    window->configured = true;
+    window_resize(host);
+}
+
+static void layer_surface_closed(void *data, struct zwlr_layer_surface_v1 *) {
+    Host *host = data;
+    host->incoming->closed = 1;
+}
+
+static const struct zwlr_layer_surface_v1_listener layer_surface_listener = {
+    .configure = layer_surface_configure,
+    .closed = layer_surface_closed,
+};
+
+// A panel along one edge, the output's full length, its thickness kept clear of windows. Made at
+// the program's first commit, so its namespace is the program's app id, which rules match.
+void layer_open(Host *host, const char *app_id) {
+    Window *window = &host->window;
+    bool upright = window->layer_edge & (ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
+    uint32_t thickness = window->layer_cells * (upright ? host->font.cell_width : host->font.cell_height);
+    uint32_t ends = upright ? ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM
+                            : ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
+    window->layer_surface = zwlr_layer_shell_v1_get_layer_surface(host->globals.layer_shell, window->surface, nullptr,
+                                                                  ZWLR_LAYER_SHELL_V1_LAYER_TOP,
+                                                                  app_id[0] ? app_id : window->file_name);
+    zwlr_layer_surface_v1_add_listener(window->layer_surface, &layer_surface_listener, host);
+    zwlr_layer_surface_v1_set_anchor(window->layer_surface, window->layer_edge | ends);
+    zwlr_layer_surface_v1_set_size(window->layer_surface, upright ? thickness : 0, upright ? 0 : thickness);
+    zwlr_layer_surface_v1_set_exclusive_zone(window->layer_surface, (int32_t)thickness);
+    zwlr_layer_surface_v1_set_keyboard_interactivity(window->layer_surface,
+                                                     ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_ON_DEMAND);
+    wl_surface_commit(window->surface);
+}
+
 static void frame_done(void *data, struct wl_callback *callback, uint32_t) {
     Host *host = data;
     wl_callback_destroy(callback);
@@ -59,7 +102,8 @@ static const struct wl_callback_listener frame_listener = {
     .done = frame_done,
 };
 
-// Waits for the first configure: the window has no size before it, and may not present.
+// Waits for the first configure: the window has no size before it, and may not present. A layer
+// surface waits for the program's first commit instead, and starts the program at a guessed size.
 bool window_open(Host *host, const char *file_name) {
     Globals *globals = &host->globals;
     Window *window = &host->window;
@@ -68,11 +112,18 @@ bool window_open(Host *host, const char *file_name) {
 
     xdg_wm_base_add_listener(globals->window_manager, &window_manager_listener, host);
     window->surface = wl_compositor_create_surface(globals->compositor);
+    window->file_name = file_name;
+    if (window->layer_edge) {
+        if (!globals->layer_shell)
+            return failed("the compositor lacks wlr layer-shell");
+        scale_attach(host);
+        window_resize(host);
+        return true;
+    }
     window->shell_surface = xdg_wm_base_get_xdg_surface(globals->window_manager, window->surface);
     xdg_surface_add_listener(window->shell_surface, &shell_surface_listener, host);
     window->toplevel = xdg_surface_get_toplevel(window->shell_surface);
     xdg_toplevel_add_listener(window->toplevel, &toplevel_listener, host);
-    window->file_name = file_name;
     window_name(host, "", "");
     scale_attach(host);
     wl_surface_commit(window->surface);
@@ -86,6 +137,8 @@ bool window_open(Host *host, const char *file_name) {
 void window_close(Host *host) {
     Window *window = &host->window;
     scale_detach(host);
+    if (window->layer_surface)
+        zwlr_layer_surface_v1_destroy(window->layer_surface);
     if (window->toplevel)
         xdg_toplevel_destroy(window->toplevel);
     if (window->shell_surface)
@@ -146,8 +199,11 @@ static void utf8_mend(char *text, size_t size) {
 }
 
 // Names the window as the program asks. An empty title shows the program's file name.
+// A layer surface has no name.
 void window_name(Host *host, const char *title, const char *app_id) {
     Window *window = &host->window;
+    if (!window->toplevel)
+        return;
     char shown_title[sizeof window->title], shown_app_id[sizeof window->app_id];
     snprintf(shown_title, sizeof shown_title, "%s", title[0] ? title : window->file_name);
     snprintf(shown_app_id, sizeof shown_app_id, "%s", app_id);

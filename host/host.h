@@ -18,6 +18,7 @@
 #include "fractional-scale-v1.h"
 #include "text-input-unstable-v3.h"
 #include "viewporter.h"
+#include "wlr-layer-shell-unstable-v1.h"
 #include "xdg-shell.h"
 
 enum { SWAPCHAIN_IMAGE_LIMIT = 8 };
@@ -47,12 +48,14 @@ typedef struct {
     struct wp_fractional_scale_manager_v1 *fractional_scale_manager;
     struct wp_cursor_shape_manager_v1     *cursor_shape_manager;
     struct zwp_text_input_manager_v3      *text_input_manager;
+    struct zwlr_layer_shell_v1            *layer_shell;
 } Globals;  // 0 where the compositor lacks one
 
 typedef struct {
     struct wl_surface             *surface;
     struct xdg_surface            *shell_surface;
     struct xdg_toplevel           *toplevel;
+    struct zwlr_layer_surface_v1  *layer_surface;     // instead of the two above, with --layer
     struct wp_viewport            *viewport;          // 0 without fractional scale
     struct wp_fractional_scale_v1 *fractional_scale;
     uint32_t surface_width, surface_height;    // the compositor's units
@@ -64,6 +67,8 @@ typedef struct {
     bool     configured;                       // the first configure is acknowledged
     bool     frame_pending;                    // a frame callback is outstanding
     bool     named;                            // the program's first commit is in, so rules see its app id
+    uint32_t layer_edge;                       // ZWLR_LAYER_SURFACE_V1_ANCHOR_*, 0 for a toplevel
+    uint32_t layer_cells;                      // across the edge: columns at left or right, rows at top or bottom
 } Window;
 
 typedef struct {
@@ -300,6 +305,7 @@ void window_close(Host *host);
 void window_request_frame(Host *host);
 void window_resize(Host *host);
 void window_name(Host *host, const char *title, const char *app_id);
+void layer_open(Host *host, const char *app_id);
 
 // scale.c
 void scale_attach(Host *host);

@@ -7,18 +7,19 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 BUILD="$ROOT/build"
-PROTOCOLS="$ROOT/vendor/wayland-protocols"
+PROTOCOLS="$ROOT/vendor"
 FREETYPE="$ROOT/vendor/freetype"
 CC=${CC:-clang}
 PACKAGES=(wayland-client wayland-cursor xkbcommon vulkan)
 
 PROTOCOL_FILES=(
-    stable/xdg-shell/xdg-shell.xml
-    stable/viewporter/viewporter.xml
-    stable/tablet/tablet-v2.xml  # cursor-shape refers to it
-    staging/cursor-shape/cursor-shape-v1.xml
-    staging/fractional-scale/fractional-scale-v1.xml
-    unstable/text-input/text-input-unstable-v3.xml
+    wayland-protocols/stable/xdg-shell/xdg-shell.xml
+    wayland-protocols/stable/viewporter/viewporter.xml
+    wayland-protocols/stable/tablet/tablet-v2.xml  # cursor-shape refers to it
+    wayland-protocols/staging/cursor-shape/cursor-shape-v1.xml
+    wayland-protocols/staging/fractional-scale/fractional-scale-v1.xml
+    wayland-protocols/unstable/text-input/text-input-unstable-v3.xml
+    wlr-protocols/unstable/wlr-layer-shell-unstable-v1.xml
 )
 
 generate_protocols() {

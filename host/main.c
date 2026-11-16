@@ -1,4 +1,5 @@
-// sc2host PROGRAM [ARGUMENT...]: runs one sc*2 program and draws it in a Wayland window.
+// sc2host [--layer=EDGE:CELLS] PROGRAM [ARGUMENT...]: runs one sc*2 program and draws it in a
+// Wayland window, or with --layer in a layer-shell panel CELLS thick on EDGE (left, right, top, bottom).
 #include <fcntl.h>
 #include <sched.h>
 #include <signal.h>
@@ -168,6 +169,8 @@ static bool host_run(Host *host) {
         if (waiting[1].revents && read(host->commit_event, &count, sizeof count) > 0 && commit_take(host, &commit)) {
             clipboard_serve(host, &commit);
             window_name(host, commit.title, commit.app_id);
+            if (host->window.layer_edge && !host->window.layer_surface)
+                layer_open(host, commit.app_id);
             host->window.named = true;
             host->font_size_asked = commit.font_size;  // settings_update applies it at the next draw
         }
@@ -212,13 +215,40 @@ static int program_wait(Host *host) {
     return WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
 }
 
+static bool layer_choose(Window *window, const char *option) {
+    static const struct { const char *name; uint32_t edge; } edges[] = {
+        {"left", ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT}, {"right", ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT},
+        {"top", ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP},   {"bottom", ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM},
+    };
+    const char *colon = strchr(option, ':');
+    if (!colon)
+        return false;
+    char *end;
+    long cells = strtol(colon + 1, &end, 10);
+    if (*end || cells <= 0 || cells > 1000)
+        return false;
+    for (size_t index = 0; index < sizeof edges / sizeof *edges; index++)
+        if (strlen(edges[index].name) == (size_t)(colon - option) && strncmp(option, edges[index].name, colon - option) == 0) {
+            window->layer_edge = edges[index].edge;
+            window->layer_cells = (uint32_t)cells;
+            return true;
+        }
+    return false;
+}
+
 int main(int argument_count, char **arguments) {
-    if (argument_count < 2) {
-        fprintf(stderr, "usage: sc2host PROGRAM [ARGUMENT...]\n");
+    int program = 1;
+    if (argument_count > 1 && strncmp(arguments[1], "--layer=", 8) == 0) {
+        if (!layer_choose(&host.window, arguments[1] + 8))
+            argument_count = 0;
+        program = 2;
+    }
+    if (argument_count <= program) {
+        fprintf(stderr, "usage: sc2host [--layer=EDGE:CELLS] PROGRAM [ARGUMENT...]\n");
         return 2;
     }
     signal(SIGPIPE, SIG_IGN);  // a closed clipboard pipe fails with EPIPE instead
-    const char *slash = strrchr(arguments[1], '/');
+    const char *slash = strrchr(arguments[program], '/');
     host.window.scale = 120;
     bool started = shared_create(&host);
     if (started)
@@ -227,8 +257,8 @@ int main(int argument_count, char **arguments) {
         && events_create(&host)
         && wayland_connect(&host)
         && font_load(&host.font, &host.settings, host.window.scale)
-        && window_open(&host, slash ? slash + 1 : arguments[1])
-        && program_start(&host, arguments + 1)
+        && window_open(&host, slash ? slash + 1 : arguments[program])
+        && program_start(&host, arguments + program)
         && graphics_open(&host)
         && atlas_open(&host)
         && draw_open(&host);

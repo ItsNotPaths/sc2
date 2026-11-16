@@ -31,7 +31,9 @@ build/sc2host build/examples/image
 ```
 
 `sc2host PROGRAM [ARGUMENT...]` opens a window, starts the program, and exits
-with the program's exit status.
+with the program's exit status. `sc2host --layer=EDGE:CELLS PROGRAM` opens a
+wlr layer-shell panel instead, CELLS thick on EDGE (left, right, top, bottom),
+its namespace the program's app id so compositor rules can match it.
 
 ## A program
 
