@@ -10,9 +10,6 @@
 #include <wayland-client.h>
 #include <wayland-cursor.h>
 #include <xkbcommon/xkbcommon.h>
-#include <ft2build.h>
-#include FT_FREETYPE_H
-
 #include "contract.h"
 #include "cursor-shape-v1.h"
 #include "fractional-scale-v1.h"
@@ -20,6 +17,7 @@
 #include "viewporter.h"
 #include "wlr-layer-shell-unstable-v1.h"
 #include "xdg-shell.h"
+#include "font.h"
 
 enum { SWAPCHAIN_IMAGE_LIMIT = 8 };
 
@@ -27,15 +25,6 @@ enum {  // powers of two, so draw.comp wraps with a mask
     SLOT_CAPACITY        = 4096,
     GLYPH_TABLE_CAPACITY = 2 * SLOT_CAPACITY,  // at most half full, so a probe always ends
     MISS_TABLE_CAPACITY  = 1024,
-};
-
-// An atlas key: a codepoint and how it is drawn; 0 marks an empty entry. draw.comp builds the same keys.
-enum {
-    GLYPH_CODEPOINT_MASK = (1u << 21) - 1,
-    GLYPH_BOLD           = 1u << 21,
-    GLYPH_ITALIC         = 1u << 22,
-    GLYPH_LEFT_HALF      = 1u << 23,  // of a wide glyph
-    GLYPH_RIGHT_HALF     = 1u << 24,
 };
 
 typedef struct {
@@ -140,16 +129,6 @@ typedef struct {
     uint16_t window_columns, window_rows;      // the window's size until the compositor picks one
     uint8_t  wheel_rows;                       // rows per wheel notch
 } Settings;
-
-typedef struct {
-    FT_Library freetype;
-    FT_Face    face;
-    char       path[256];                      // what it was loaded from, to tell when settings change
-    uint32_t   size, scale;
-    uint32_t   cell_width, cell_height;        // pixels, 1:2
-    int32_t    baseline;                       // pixels from the cell top
-    uint32_t   underline_top, underline_thickness;
-} Font;
 
 typedef struct {
     VkBuffer        buffer;
@@ -335,11 +314,6 @@ void   clipboard_transfer(Host *host);
 // settings.c
 void settings_update(Host *host);
 
-// font.c
-bool font_load(Font *font, const Settings *settings, uint32_t scale);
-bool font_matches(const Font *font, const Settings *settings, uint32_t scale);
-void font_close(Font *font);
-void font_draw(const Font *font, uint32_t key, uint8_t *coverage);
 
 // flatten.c
 void     flatten(const sc2_node nodes[NODE_COUNT], Rectangle window, Placement placements[NODE_COUNT]);

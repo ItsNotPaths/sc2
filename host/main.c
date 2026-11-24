@@ -256,7 +256,8 @@ int main(int argument_count, char **arguments) {
     started = started
         && events_create(&host)
         && wayland_connect(&host)
-        && font_load(&host.font, &host.settings, host.window.scale)
+        && (font_load(&host.font, host.settings.font_path, host.settings.font_size, host.window.scale)
+            || failed(host.font.problem))
         && window_open(&host, slash ? slash + 1 : arguments[program])
         && program_start(&host, arguments + program)
         && graphics_open(&host)

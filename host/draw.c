@@ -163,7 +163,9 @@ static bool font_reload(Host *host) {
     host->font = (Font){};
     atlas_close(host);
     host->atlas = (Atlas){};
-    bool loaded = font_load(&host->font, &host->settings, host->window.scale) && atlas_open(host);
+    bool loaded = (font_load(&host->font, host->settings.font_path, host->settings.font_size, host->window.scale)
+                   || failed(host->font.problem))
+               && atlas_open(host);
     input_begin(host);
     if (loaded)
         window_resize(host);
@@ -207,7 +209,7 @@ bool draw_due(Host *host) {
     if (!window->configured || window->frame_pending || !window->named)
         return false;
     return sequence_read_begin(&host->shared->header.commit_sequence) != host->drawing.drawn_sequence
-        || !font_matches(&host->font, &host->settings, window->scale)
+        || !font_matches(&host->font, host->settings.font_path, host->settings.font_size, window->scale)
         || extent.width != window->width || extent.height != window->height
         || atlas_fill_misses(host);
 }
@@ -220,7 +222,8 @@ void draw_frame(Host *host) {
     input_begin(host);
     settings_update(host);
     input_end(host);
-    if (!font_matches(&host->font, &host->settings, window->scale) && !font_reload(host))
+    if (!font_matches(&host->font, host->settings.font_path, host->settings.font_size, window->scale)
+        && !font_reload(host))
         return;
     atlas_fill_misses(host);
     if ((graphics->extent.width != window->width || graphics->extent.height != window->height)

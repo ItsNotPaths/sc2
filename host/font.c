@@ -1,6 +1,7 @@
+#include <stdio.h>
 #include <string.h>
 
-#include "host.h"
+#include "font.h"
 
 #include FT_SYNTHESIS_H
 
@@ -10,18 +11,23 @@ static int32_t round_pixels(FT_Pos value) {  // 26.6 fixed point
 
 // The cell is fixed at 1:2. Picks the largest size whose line height and advance both fit,
 // then pads: the line is centered in the cell height, each glyph in the cell width.
-bool font_load(Font *font, const Settings *settings, uint32_t scale) {
-    strcpy(font->path, settings->font_path);
-    font->size = settings->font_size;
+static bool font_failed(Font *font, const char *problem) {
+    font->problem = problem;
+    return false;
+}
+
+bool font_load(Font *font, const char *path, uint32_t size, uint32_t scale) {
+    snprintf(font->path, sizeof font->path, "%s", path);
+    font->size = size;
     font->scale = scale;
-    if (!settings->font_size)
-        return failed("font_size is 0 in src/settings.c");
-    if (FT_Init_FreeType(&font->freetype) || FT_New_Face(font->freetype, settings->font_path, 0, &font->face))
-        return failed("cannot open font_path from src/settings.c");
+    if (!size)
+        return font_failed(font, "the font size is 0");
+    if (FT_Init_FreeType(&font->freetype) || FT_New_Face(font->freetype, path, 0, &font->face))
+        return font_failed(font, "cannot open the font file");
     FT_Face face = font->face;
     if (!FT_IS_SCALABLE(face) || FT_Load_Char(face, 'M', FT_LOAD_NO_SCALE))
-        return failed("the font must be scalable and have an M");
-    font->cell_height = settings->font_size * scale / 120;
+        return font_failed(font, "the font must be scalable and have an M");
+    font->cell_height = size * scale / 120;
     font->cell_width = font->cell_height / 2;
 
     FT_Long line_height = face->ascender - face->descender;  // font units
@@ -29,7 +35,7 @@ bool font_load(Font *font, const Settings *settings, uint32_t scale) {
     FT_Long size_by_height = font->cell_height * face->units_per_EM / line_height;
     FT_Long size_by_width = font->cell_width * face->units_per_EM / advance;
     if (FT_Set_Pixel_Sizes(face, 0, size_by_height < size_by_width ? size_by_height : size_by_width))
-        return failed("cannot size the font");
+        return font_failed(font, "cannot size the font");
 
     const FT_Size_Metrics *metrics = &face->size->metrics;
     int32_t ascender = round_pixels(metrics->ascender);
@@ -43,8 +49,8 @@ bool font_load(Font *font, const Settings *settings, uint32_t scale) {
     return true;
 }
 
-bool font_matches(const Font *font, const Settings *settings, uint32_t scale) {
-    return font->size == settings->font_size && font->scale == scale && strcmp(font->path, settings->font_path) == 0;
+bool font_matches(const Font *font, const char *path, uint32_t size, uint32_t scale) {
+    return font->size == size && font->scale == scale && strcmp(font->path, path) == 0;
 }
 
 void font_close(Font *font) {
@@ -54,8 +60,7 @@ void font_close(Font *font) {
         FT_Done_FreeType(font->freetype);
 }
 
-// Fills coverage for one glyph key: cell_width by cell_height bytes, zeroed by the caller. A wide
-// glyph spans two cells and this fills one half. A glyph wider than its cells, such as CJK in one
+// A wide glyph spans two cells and this fills one half. A glyph wider than its cells, such as CJK in one
 // cell, is squeezed to fit. A missing glyph draws as the font's .notdef.
 void font_draw(const Font *font, uint32_t key, uint8_t *coverage) {
     FT_Face face = font->face;
