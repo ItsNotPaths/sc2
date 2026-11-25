@@ -172,6 +172,8 @@ static bool font_reload(Host *host) {
     else
         host->incoming->closed = 1;
     input_end(host);
+    if (loaded)
+        window_fit(host);
     return loaded;
 }
 
@@ -214,16 +216,21 @@ bool draw_due(Host *host) {
         || atlas_fill_misses(host);
 }
 
+// Brings the font to what the settings and scale ask for; false when it could not load.
+bool draw_font_apply(Host *host) {
+    graphics_wait(&host->graphics);
+    input_begin(host);
+    settings_update(host);
+    input_end(host);
+    return font_matches(&host->font, host->settings.font_path, host->settings.font_size, host->window.scale)
+        || font_reload(host);
+}
+
 void draw_frame(Host *host) {
     Graphics *graphics = &host->graphics;
     Window *window = &host->window;
     Drawing *drawing = &host->drawing;
-    graphics_wait(graphics);
-    input_begin(host);
-    settings_update(host);
-    input_end(host);
-    if (!font_matches(&host->font, host->settings.font_path, host->settings.font_size, window->scale)
-        && !font_reload(host))
+    if (!draw_font_apply(host))
         return;
     atlas_fill_misses(host);
     if ((graphics->extent.width != window->width || graphics->extent.height != window->height)

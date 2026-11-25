@@ -72,23 +72,115 @@ static const struct zwlr_layer_surface_v1_listener layer_surface_listener = {
     .closed = layer_surface_closed,
 };
 
-// A panel along one edge, the output's full length, its thickness kept clear of windows. Made at
-// the program's first commit, so its namespace is the program's app id, which rules match.
-void layer_open(Host *host, const char *app_id) {
+enum { SURFACE_CELL_LIMIT = 1000 };  // a panel's or popup's cells across either side
+
+#define ANCHOR_TOP    ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP
+#define ANCHOR_BOTTOM ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM
+#define ANCHOR_LEFT   ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT
+#define ANCHOR_RIGHT  ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT
+
+static const uint32_t position_anchors[] = {
+    [SC2_POSITION_CENTER] = 0,
+    [SC2_POSITION_TOP] = ANCHOR_TOP,
+    [SC2_POSITION_BOTTOM] = ANCHOR_BOTTOM,
+    [SC2_POSITION_LEFT] = ANCHOR_LEFT,
+    [SC2_POSITION_RIGHT] = ANCHOR_RIGHT,
+    [SC2_POSITION_TOP_LEFT] = ANCHOR_TOP | ANCHOR_LEFT,
+    [SC2_POSITION_TOP_RIGHT] = ANCHOR_TOP | ANCHOR_RIGHT,
+    [SC2_POSITION_BOTTOM_LEFT] = ANCHOR_BOTTOM | ANCHOR_LEFT,
+    [SC2_POSITION_BOTTOM_RIGHT] = ANCHOR_BOTTOM | ANCHOR_RIGHT,
+};
+
+static bool cells_valid(uint16_t cells) {
+    return cells > 0 && cells <= SURFACE_CELL_LIMIT;
+}
+
+static bool upright(uint8_t position) {
+    return position == SC2_POSITION_LEFT || position == SC2_POSITION_RIGHT;
+}
+
+// The kind the host can make of what the commit asks: a window in place of a panel or popup
+// that asks the impossible, or that the compositor cannot show.
+static uint8_t kind_choose(const Host *host, const Commit *commit) {
+    uint8_t position = commit->surface_position;
+    bool edge = position >= SC2_POSITION_TOP && position <= SC2_POSITION_RIGHT;
+    bool panel = commit->surface_kind == SC2_SURFACE_PANEL && edge
+              && cells_valid(upright(position) ? commit->surface_columns : commit->surface_rows);
+    bool popup = commit->surface_kind == SC2_SURFACE_POPUP && position <= SC2_POSITION_BOTTOM_RIGHT
+              && cells_valid(commit->surface_columns) && cells_valid(commit->surface_rows);
+    if (!host->globals.layer_shell || !(panel || popup))
+        return SC2_SURFACE_WINDOW;
+    return commit->surface_kind;
+}
+
+// Surface units for pixels at the drawn scale, rounded up so the cells fit.
+static uint32_t surface_units(const Host *host, uint32_t pixels) {
+    return (pixels * 120 + host->font.scale - 1) / host->font.scale;
+}
+
+static void toplevel_open(Host *host) {
     Window *window = &host->window;
-    bool upright = window->layer_edge & (ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
-    uint32_t thickness = window->layer_cells * (upright ? host->font.cell_width : host->font.cell_height);
-    uint32_t ends = upright ? ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM
-                            : ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
-    window->layer_surface = zwlr_layer_shell_v1_get_layer_surface(host->globals.layer_shell, window->surface, nullptr,
-                                                                  ZWLR_LAYER_SHELL_V1_LAYER_TOP,
-                                                                  app_id[0] ? app_id : window->file_name);
+    window->shell_surface = xdg_wm_base_get_xdg_surface(host->globals.window_manager, window->surface);
+    xdg_surface_add_listener(window->shell_surface, &shell_surface_listener, host);
+    window->toplevel = xdg_surface_get_toplevel(window->shell_surface);
+    xdg_toplevel_add_listener(window->toplevel, &toplevel_listener, host);
+}
+
+// A panel runs the output's full length on its edge, keeps its thickness clear of windows and
+// takes no keyboard. A popup sits over everything and takes the keyboard when the compositor gives it.
+// The namespace is the program's app id, which rules match.
+static void layer_open(Host *host, const char *app_id) {
+    Window *window = &host->window;
+    bool panel = window->kind == SC2_SURFACE_PANEL;
+    uint32_t anchors = position_anchors[window->position];
+    if (panel)
+        anchors |= upright(window->position) ? ANCHOR_TOP | ANCHOR_BOTTOM : ANCHOR_LEFT | ANCHOR_RIGHT;
+    window->layer_surface = zwlr_layer_shell_v1_get_layer_surface(
+        host->globals.layer_shell, window->surface, nullptr,
+        panel ? ZWLR_LAYER_SHELL_V1_LAYER_TOP : ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY,
+        app_id[0] ? app_id : window->file_name);
     zwlr_layer_surface_v1_add_listener(window->layer_surface, &layer_surface_listener, host);
-    zwlr_layer_surface_v1_set_anchor(window->layer_surface, window->layer_edge | ends);
-    zwlr_layer_surface_v1_set_size(window->layer_surface, upright ? thickness : 0, upright ? 0 : thickness);
-    zwlr_layer_surface_v1_set_exclusive_zone(window->layer_surface, (int32_t)thickness);
+    zwlr_layer_surface_v1_set_anchor(window->layer_surface, anchors);
     zwlr_layer_surface_v1_set_keyboard_interactivity(window->layer_surface,
-                                                     ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_ON_DEMAND);
+        panel ? ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_NONE
+              : ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_ON_DEMAND);
+}
+
+// Sizes a panel or popup to its cells in the current font, and commits it. A window keeps its size.
+void window_fit(Host *host) {
+    Window *window = &host->window;
+    if (!window->layer_surface)
+        return;
+    uint32_t width = surface_units(host, window->columns * host->font.cell_width);
+    uint32_t height = surface_units(host, window->rows * host->font.cell_height);
+    if (window->kind == SC2_SURFACE_PANEL) {
+        bool across = upright(window->position);
+        zwlr_layer_surface_v1_set_size(window->layer_surface, across ? width : 0, across ? 0 : height);
+        zwlr_layer_surface_v1_set_exclusive_zone(window->layer_surface, (int32_t)(across ? width : height));
+    } else
+        zwlr_layer_surface_v1_set_size(window->layer_surface, width, height);
+    wl_surface_commit(window->surface);
+}
+
+// Gives the surface its role, as the program's first commit asks, in the font it asked for.
+void window_place(Host *host, const Commit *commit) {
+    Window *window = &host->window;
+    if (!draw_font_apply(host))
+        return;
+    window->kind = kind_choose(host, commit);
+    window->position = commit->surface_position;
+    window->columns = commit->surface_columns;
+    window->rows = commit->surface_rows;
+    window->named = true;
+    if (window->kind != SC2_SURFACE_WINDOW) {
+        layer_open(host, commit->app_id);
+        window_fit(host);
+        return;
+    }
+    window->surface_width = surface_units(host, host->settings.window_columns * host->font.cell_width);
+    window->surface_height = surface_units(host, host->settings.window_rows * host->font.cell_height);
+    toplevel_open(host);
+    window_name(host, commit->title, commit->app_id);
     wl_surface_commit(window->surface);
 }
 
@@ -102,35 +194,16 @@ static const struct wl_callback_listener frame_listener = {
     .done = frame_done,
 };
 
-// Waits for the first configure: the window has no size before it, and may not present. A layer
-// surface waits for the program's first commit instead, and starts the program at a guessed size.
+// The surface has no role until the program's first commit; the program starts at a guessed size.
 bool window_open(Host *host, const char *file_name) {
-    Globals *globals = &host->globals;
     Window *window = &host->window;
-    window->surface_width = host->settings.window_columns * host->font.cell_width;
-    window->surface_height = host->settings.window_rows * host->font.cell_height;
-
-    xdg_wm_base_add_listener(globals->window_manager, &window_manager_listener, host);
-    window->surface = wl_compositor_create_surface(globals->compositor);
+    window->surface_width = surface_units(host, host->settings.window_columns * host->font.cell_width);
+    window->surface_height = surface_units(host, host->settings.window_rows * host->font.cell_height);
+    xdg_wm_base_add_listener(host->globals.window_manager, &window_manager_listener, host);
+    window->surface = wl_compositor_create_surface(host->globals.compositor);
     window->file_name = file_name;
-    if (window->layer_edge) {
-        if (!globals->layer_shell)
-            return failed("the compositor lacks wlr layer-shell");
-        scale_attach(host);
-        window_resize(host);
-        return true;
-    }
-    window->shell_surface = xdg_wm_base_get_xdg_surface(globals->window_manager, window->surface);
-    xdg_surface_add_listener(window->shell_surface, &shell_surface_listener, host);
-    window->toplevel = xdg_surface_get_toplevel(window->shell_surface);
-    xdg_toplevel_add_listener(window->toplevel, &toplevel_listener, host);
-    window_name(host, "", "");
     scale_attach(host);
-    wl_surface_commit(window->surface);
-
-    while (!window->configured)
-        if (wl_display_dispatch(host->display) < 0)
-            return failed("the compositor never configured the window");
+    window_resize(host);
     return true;
 }
 

@@ -74,6 +74,24 @@ the host; sc2host shows the program's file name.
 The host shows no window until the first commit, so a compositor sees the first commit's
 `app_id` before the window maps; window rules match on it. Set `app_id` before the first tick.
 
+## Placement
+
+The program asks where it shows with `surface_kind`, read once, at the first commit, with
+`surface_position`, `surface_columns` and `surface_rows`. Set them before the first tick.
+
+- `SC2_SURFACE_WINDOW`: an ordinary window. The other fields are not read.
+- `SC2_SURFACE_PANEL`: runs the full length of one edge (`SC2_POSITION_TOP`, `_BOTTOM`, `_LEFT`
+  or `_RIGHT`), `surface_rows` thick on the top or bottom, `surface_columns` on the left or right.
+  Windows keep clear of it. It takes no keyboard.
+- `SC2_SURFACE_POPUP`: `surface_columns` by `surface_rows`, at any `SC2_POSITION_`, over
+  everything. It takes the keyboard when the compositor gives it, and the host closes it when
+  it loses the keyboard.
+
+A panel or popup keeps its cells when the font size changes. A host shows a window in place of
+a panel or popup it cannot make, or one that asks for no cells or for a position its kind does
+not take. sc2host makes panels and popups with wlr layer-shell, named by the program's `app_id`,
+and holds their cells to 1000 a side.
+
 ## Font size
 
 The program picks its text size with `font_size`: the cell height in pixels at scale 1, or 0 for
@@ -120,7 +138,7 @@ whatever the program does:
 ## What the contract leaves to the host
 
 The font file, the scale, which keys reach the program, how the clipboard is reached,
-and how many programs it shows and where. sc2host shows one program in one Wayland window.
+and how many programs it shows. sc2host shows one program in one Wayland surface.
 
 ## Versions
 

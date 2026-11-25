@@ -50,7 +50,15 @@ enum {
 
 enum { SC2_MOUSE_OUTSIDE = 255 };  // mouse_node when the mouse is not over the window
 
-// Fields run largest to smallest. Each writer's fields stay together, so a tick copies one range each way.
+enum { SC2_SURFACE_WINDOW, SC2_SURFACE_PANEL, SC2_SURFACE_POPUP };
+// surface_position: a panel takes an edge; a popup takes any
+enum {
+    SC2_POSITION_CENTER, SC2_POSITION_TOP, SC2_POSITION_BOTTOM, SC2_POSITION_LEFT, SC2_POSITION_RIGHT,
+    SC2_POSITION_TOP_LEFT, SC2_POSITION_TOP_RIGHT, SC2_POSITION_BOTTOM_LEFT, SC2_POSITION_BOTTOM_RIGHT
+};
+
+// Each writer's fields stay together, so a tick copies one range each way. Within a group, fields run
+// largest to smallest.
 typedef struct {
     uint32_t storage_offset;                 // into cells, or pixels at a multiple of 4
     uint32_t sequence;                       // bumped after each image frame
@@ -94,23 +102,32 @@ typedef struct {
     // written by program, copied out at each tick
     sc2_style styles[SC2_STYLE_CAPACITY];
     sc2_node nodes[255];
+
+    // the window; the surface_ fields are read once, at the first commit
     char     title[256];                     // UTF-8, ends at the first 0; empty shows the file name
     char     app_id[64];                     // for window rules; empty sets none
+    uint16_t font_size;                      // cell height in pixels at scale 1; 0 uses host_font_size
+    uint16_t surface_columns, surface_rows;  // a popup's size; a panel's thickness across its edge
+    uint8_t  surface_kind;                   // SC2_SURFACE_
+    uint8_t  surface_position;               // SC2_POSITION_, for a panel or popup
+
+    // the clipboard
     uint32_t paste_request;                  // bump to ask for the clipboard
     uint32_t copy_sequence;                  // bump after writing copy
     uint32_t copy_length;
-    uint16_t tick_rate;                      // ticks per second, default 240
-    uint16_t idle_tick_rate;                 // ticks per second while idle; 0 sleeps until input
-    uint16_t font_size;                      // cell height in pixels at scale 1; 0 uses host_font_size
     uint8_t  paste_request_data;             // one SC2_DATA_ bit from paste_offered
     uint8_t  copy_data;                      // SC2_DATA_ bits the copy is offered as
+
+    // the loop
+    uint16_t tick_rate;                      // ticks per second, default 240
+    uint16_t idle_tick_rate;                 // ticks per second while idle; 0 sleeps until input
 } sc2_screen;
 
 // Host contract. The host runs the program with three inherited fds, named in the environment:
 // SC2_SHARED_FD, a memfd holding sc2_shared; SC2_COMMIT_FD, an eventfd the program writes after
 // each commit; SC2_INPUT_FD, an eventfd the host writes after input changes.
 
-enum { SC2_MAGIC = 0x322a6373, SC2_VERSION = 2 };  // magic is "sc*2" in memory
+enum { SC2_MAGIC = 0x322a6373, SC2_VERSION = 3 };  // magic is "sc*2" in memory
 
 // A region's sequence is odd while its writer writes it. A reader that saw an odd or changed
 // sequence across its read saw a torn region, and reads again.

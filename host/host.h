@@ -44,7 +44,7 @@ typedef struct {
     struct wl_surface             *surface;
     struct xdg_surface            *shell_surface;
     struct xdg_toplevel           *toplevel;
-    struct zwlr_layer_surface_v1  *layer_surface;     // instead of the two above, with --layer
+    struct zwlr_layer_surface_v1  *layer_surface;     // instead of the two above, for a panel or popup
     struct wp_viewport            *viewport;          // 0 without fractional scale
     struct wp_fractional_scale_v1 *fractional_scale;
     uint32_t surface_width, surface_height;    // the compositor's units
@@ -55,9 +55,10 @@ typedef struct {
     uint32_t scale;                            // 120ths, from the compositor; font.scale is the one drawn
     bool     configured;                       // the first configure is acknowledged
     bool     frame_pending;                    // a frame callback is outstanding
-    bool     named;                            // the program's first commit is in, so rules see its app id
-    uint32_t layer_edge;                       // ZWLR_LAYER_SURFACE_V1_ANCHOR_*, 0 for a toplevel
-    uint32_t layer_cells;                      // across the edge: columns at left or right, rows at top or bottom
+    bool     named;                            // placed at the program's first commit, so rules see its app id
+    uint16_t columns, rows;                    // a panel's or popup's cells, as placed
+    uint8_t  kind;                             // SC2_SURFACE_, as placed
+    uint8_t  position;                         // SC2_POSITION_, as placed
 } Window;
 
 typedef struct {
@@ -194,6 +195,8 @@ typedef struct {
     char     title[256], app_id[64];           // terminated, not yet checked as UTF-8
     uint32_t paste_request, copy_sequence;
     uint16_t font_size;
+    uint16_t surface_columns, surface_rows;
+    uint8_t  surface_kind, surface_position;
     uint8_t  paste_request_data;
 } Commit;  // the small fields of one whole commit that the host acts on
 
@@ -284,7 +287,8 @@ void window_close(Host *host);
 void window_request_frame(Host *host);
 void window_resize(Host *host);
 void window_name(Host *host, const char *title, const char *app_id);
-void layer_open(Host *host, const char *app_id);
+void window_place(Host *host, const Commit *commit);
+void window_fit(Host *host);
 
 // scale.c
 void scale_attach(Host *host);
@@ -338,5 +342,6 @@ bool atlas_fill_misses(Host *host);
 // draw.c
 bool draw_open(Host *host);
 void draw_close(Host *host);
+bool draw_font_apply(Host *host);
 bool draw_due(Host *host);
 void draw_frame(Host *host);

@@ -1,5 +1,5 @@
-// sc2host [--layer=EDGE:CELLS] PROGRAM [ARGUMENT...]: runs one sc*2 program and draws it in a
-// Wayland window, or with --layer in a layer-shell panel CELLS thick on EDGE (left, right, top, bottom).
+// sc2host PROGRAM [ARGUMENT...]: runs one sc*2 program and draws it in a Wayland window, panel or
+// popup, as the program asks.
 #include <fcntl.h>
 #include <sched.h>
 #include <signal.h>
@@ -72,6 +72,10 @@ static bool commit_take(Host *host, Commit *commit) {
         commit->paste_request_data = committed->paste_request_data;
         commit->copy_sequence = committed->copy_sequence;
         commit->font_size = committed->font_size;
+        commit->surface_columns = committed->surface_columns;
+        commit->surface_rows = committed->surface_rows;
+        commit->surface_kind = committed->surface_kind;
+        commit->surface_position = committed->surface_position;
     } while (commit_read_retry(host, &read));
     commit->title[sizeof commit->title - 1] = 0;
     commit->app_id[sizeof commit->app_id - 1] = 0;
@@ -166,18 +170,19 @@ static bool host_run(Host *host) {
         if (display_lost)
             host->incoming->closed = 1;
         Commit commit;
+        bool placing = false;
         if (waiting[1].revents && read(host->commit_event, &count, sizeof count) > 0 && commit_take(host, &commit)) {
             clipboard_serve(host, &commit);
             window_name(host, commit.title, commit.app_id);
-            if (host->window.layer_edge && !host->window.layer_surface)
-                layer_open(host, commit.app_id);
-            host->window.named = true;
             host->font_size_asked = commit.font_size;  // settings_update applies it at the next draw
+            placing = !host->window.named;
         }
         if (waiting[2].revents && read(host->repeat_timer, &count, sizeof count) > 0)
             keyboard_repeat(host);
         clipboard_transfer(host);
         input_end(host);
+        if (placing)
+            window_place(host, &commit);
         if (display_lost)
             return failed("lost the compositor");
         if (waiting[3].revents || host->incoming->closed)
@@ -215,36 +220,10 @@ static int program_wait(Host *host) {
     return WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
 }
 
-static bool layer_choose(Window *window, const char *option) {
-    static const struct { const char *name; uint32_t edge; } edges[] = {
-        {"left", ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT}, {"right", ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT},
-        {"top", ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP},   {"bottom", ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM},
-    };
-    const char *colon = strchr(option, ':');
-    if (!colon)
-        return false;
-    char *end;
-    long cells = strtol(colon + 1, &end, 10);
-    if (*end || cells <= 0 || cells > 1000)
-        return false;
-    for (size_t index = 0; index < sizeof edges / sizeof *edges; index++)
-        if (strlen(edges[index].name) == (size_t)(colon - option) && strncmp(option, edges[index].name, colon - option) == 0) {
-            window->layer_edge = edges[index].edge;
-            window->layer_cells = (uint32_t)cells;
-            return true;
-        }
-    return false;
-}
-
 int main(int argument_count, char **arguments) {
     int program = 1;
-    if (argument_count > 1 && strncmp(arguments[1], "--layer=", 8) == 0) {
-        if (!layer_choose(&host.window, arguments[1] + 8))
-            argument_count = 0;
-        program = 2;
-    }
     if (argument_count <= program) {
-        fprintf(stderr, "usage: sc2host [--layer=EDGE:CELLS] PROGRAM [ARGUMENT...]\n");
+        fprintf(stderr, "usage: sc2host PROGRAM [ARGUMENT...]\n");
         return 2;
     }
     signal(SIGPIPE, SIG_IGN);  // a closed clipboard pipe fails with EPIPE instead

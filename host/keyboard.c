@@ -41,12 +41,14 @@ static void keyboard_enter(void *data, struct wl_keyboard *, uint32_t serial, st
     ((Host *)data)->input_serial = serial;
 }
 
-// Releases every held key, since their releases go to the window that has focus now.
+// Releases every held key, since their releases go to the window that has focus now. A popup closes.
 static void keyboard_leave(void *data, struct wl_keyboard *, uint32_t, struct wl_surface *) {
     Host *host = data;
     for (int scancode = 0; scancode < KEY_CAPACITY; scancode++)
         transition_set(&host->incoming->key_transitions[scancode], false);
     repeat_arm(host, 0);
+    if (host->window.kind == SC2_SURFACE_POPUP)
+        host->incoming->closed = 1;
 }
 
 static void keyboard_key(void *data, struct wl_keyboard *, uint32_t serial, uint32_t, uint32_t scancode, uint32_t state) {
