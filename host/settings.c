@@ -4,7 +4,7 @@
 
 enum { FONT_SIZE_LOWEST = 6, FONT_SIZE_HIGHEST = 200 };  // a program's font_size is held to these
 
-// Users vendor sc*2 and patch these. sc2host stops when the font is missing.
+// Users vendor sc*2 and patch these. sc2host stops when its own font is missing.
 static const Settings defaults = {
     .font_path = "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
     .font_size = 20,
@@ -23,6 +23,8 @@ static const Settings defaults = {
 // changes at run time. A font or palette change shows on that draw.
 void settings_update(Host *host) {
     host->settings = defaults;
+    if (host->font_path_asked[0] && strcmp(host->font_path_asked, host->font_path_refused) != 0)
+        memcpy(host->settings.font_path, host->font_path_asked, sizeof host->settings.font_path);
     uint16_t asked = host->font_size_asked;
     if (asked)
         host->settings.font_size = asked < FONT_SIZE_LOWEST ? FONT_SIZE_LOWEST

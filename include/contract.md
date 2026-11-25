@@ -92,7 +92,12 @@ a panel or popup it cannot make, or one that asks for no cells or for a position
 not take. sc2host makes panels and popups with wlr layer-shell, named by the program's `app_id`,
 and holds their cells to 1000 a side.
 
-## Font size
+## Font
+
+The program picks its font with `font_path`: a scalable font file, ending at the first 0 byte, or
+empty for the host's own font. The host loads it at the next draw, and again whenever the program
+writes a different one. A font that will not load is reported by the host and not tried again;
+the host draws in its own font in its place.
 
 The program picks its text size with `font_size`: the cell height in pixels at scale 1, or 0 for
 the host's own size, which the host reports in `host_font_size`. The host multiplies it by the
@@ -126,7 +131,7 @@ whatever the program does:
 
 - It seals the memfd, so the program cannot shrink the memory under the host's reads.
 - It reads only the cells and bytes the node rules allow (`libsc2/contract.h`), clamps
-  `copy_length`, ends `title` and `app_id` itself, and replaces bytes that are not valid UTF-8.
+  `copy_length`, ends `title`, `app_id` and `font_path` itself, and replaces bytes that are not valid UTF-8.
 - It gives up on a read when the program keeps `commit_sequence` odd, and tries again at the
   next commit. sc2host waits 100 ms.
 - It bounds its own work per frame. sc2host packs at most `SC2_CELL_CAPACITY` cells, however
@@ -137,7 +142,7 @@ whatever the program does:
 
 ## What the contract leaves to the host
 
-The font file, the scale, which keys reach the program, how the clipboard is reached,
+Its own font, the scale, which keys reach the program, how the clipboard is reached,
 and how many programs it shows. sc2host shows one program in one Wayland surface.
 
 ## Versions

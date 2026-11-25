@@ -193,6 +193,7 @@ typedef struct {
 
 typedef struct {
     char     title[256], app_id[64];           // terminated, not yet checked as UTF-8
+    char     font_path[256];                   // terminated
     uint32_t paste_request, copy_sequence;
     uint16_t font_size;
     uint16_t surface_columns, surface_rows;
@@ -228,6 +229,8 @@ typedef struct {
     pid_t       program_id;
     uint32_t    input_serial;                  // of the last input event; copy needs it
     uint16_t    font_size_asked;               // by the program's last commit; 0 asks for none
+    char        font_path_asked[256];          // by the program's last commit; "" asks for none
+    char        font_path_refused[256];        // an asked font that would not load; not tried again
 
     struct wl_display *display;
     Globals   globals;

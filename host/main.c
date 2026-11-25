@@ -68,6 +68,7 @@ static bool commit_take(Host *host, Commit *commit) {
     do {
         memcpy(commit->title, committed->title, sizeof commit->title);
         memcpy(commit->app_id, committed->app_id, sizeof commit->app_id);
+        memcpy(commit->font_path, committed->font_path, sizeof commit->font_path);
         commit->paste_request = committed->paste_request;
         commit->paste_request_data = committed->paste_request_data;
         commit->copy_sequence = committed->copy_sequence;
@@ -79,6 +80,7 @@ static bool commit_take(Host *host, Commit *commit) {
     } while (commit_read_retry(host, &read));
     commit->title[sizeof commit->title - 1] = 0;
     commit->app_id[sizeof commit->app_id - 1] = 0;
+    commit->font_path[sizeof commit->font_path - 1] = 0;
     return read.whole;
 }
 
@@ -174,7 +176,8 @@ static bool host_run(Host *host) {
         if (waiting[1].revents && read(host->commit_event, &count, sizeof count) > 0 && commit_take(host, &commit)) {
             clipboard_serve(host, &commit);
             window_name(host, commit.title, commit.app_id);
-            host->font_size_asked = commit.font_size;  // settings_update applies it at the next draw
+            host->font_size_asked = commit.font_size;  // settings_update applies both at the next draw
+            memcpy(host->font_path_asked, commit.font_path, sizeof host->font_path_asked);
             placing = !host->window.named;
         }
         if (waiting[2].revents && read(host->repeat_timer, &count, sizeof count) > 0)

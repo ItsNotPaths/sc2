@@ -156,6 +156,24 @@ static bool frame_build(Host *host) {
     return true;
 }
 
+// The settings' font. A font the program asked for that will not load is refused, and the
+// host's own is loaded in its place.
+static bool font_settings_load(Host *host) {
+    if (font_load(&host->font, host->settings.font_path, host->settings.font_size, host->window.scale))
+        return true;
+    if (!host->font_path_asked[0] || strcmp(host->settings.font_path, host->font_path_asked) != 0)
+        return failed(host->font.problem);
+    fprintf(stderr, "sc2host: the program's font_path: %s; using the host's font\n", host->font.problem);
+    memcpy(host->font_path_refused, host->font_path_asked, sizeof host->font_path_refused);
+    font_close(&host->font);
+    host->font = (Font){};
+    input_begin(host);
+    settings_update(host);
+    input_end(host);
+    return font_load(&host->font, host->settings.font_path, host->settings.font_size, host->window.scale)
+        || failed(host->font.problem);
+}
+
 // Loads the font the settings and scale ask for, and empties the atlas. The GPU must be idle.
 // A failure closes the window, since nothing can draw without a font and an atlas.
 static bool font_reload(Host *host) {
@@ -163,9 +181,7 @@ static bool font_reload(Host *host) {
     host->font = (Font){};
     atlas_close(host);
     host->atlas = (Atlas){};
-    bool loaded = (font_load(&host->font, host->settings.font_path, host->settings.font_size, host->window.scale)
-                   || failed(host->font.problem))
-               && atlas_open(host);
+    bool loaded = font_settings_load(host) && atlas_open(host);
     input_begin(host);
     if (loaded)
         window_resize(host);
