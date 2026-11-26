@@ -78,6 +78,7 @@ static bool commit_take(Host *host, Commit *commit) {
         commit->surface_rows = committed->surface_rows;
         commit->surface_kind = committed->surface_kind;
         commit->surface_position = committed->surface_position;
+        commit->surface_close_on_leave = committed->surface_close_on_leave;
     } while (commit_read_retry(host, &read));
     commit->title[sizeof commit->title - 1] = 0;
     commit->app_id[sizeof commit->app_id - 1] = 0;

@@ -112,6 +112,7 @@ typedef struct {
     uint16_t surface_columns, surface_rows;  // a popup's size; a panel's thickness across its edge
     uint8_t  surface_kind;                   // SC2_SURFACE_
     uint8_t  surface_position;               // SC2_POSITION_, for a panel or popup
+    uint8_t  surface_close_on_leave;         // 1: a popup closes when it loses the keyboard
 
     // the clipboard
     uint32_t paste_request;                  // bump to ask for the clipboard
@@ -129,7 +130,7 @@ typedef struct {
 // SC2_SHARED_FD, a memfd holding sc2_shared; SC2_COMMIT_FD, an eventfd the program writes after
 // each commit; SC2_INPUT_FD, an eventfd the host writes after input changes.
 
-enum { SC2_MAGIC = 0x322a6373, SC2_VERSION = 5 };  // magic is "sc*2" in memory
+enum { SC2_MAGIC = 0x322a6373, SC2_VERSION = 6 };  // magic is "sc*2" in memory
 
 // A region's sequence is odd while its writer writes it. A reader that saw an odd or changed
 // sequence across its read saw a torn region, and reads again.

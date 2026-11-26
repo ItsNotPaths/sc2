@@ -169,6 +169,7 @@ void window_place(Host *host, const Commit *commit) {
         return;
     window->kind = kind_choose(host, commit);
     window->position = commit->surface_position;
+    window->close_on_leave = window->kind == SC2_SURFACE_POPUP && commit->surface_close_on_leave == 1;
     window->columns = commit->surface_columns;
     window->rows = commit->surface_rows;
     window->named = true;

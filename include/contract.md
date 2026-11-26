@@ -77,15 +77,16 @@ The host shows no window until the first commit, so a compositor sees the first 
 ## Placement
 
 The program asks where it shows with `surface_kind`, read once, at the first commit, with
-`surface_position`, `surface_columns` and `surface_rows`. Set them before the first tick.
+`surface_position`, `surface_columns`, `surface_rows` and `surface_close_on_leave`. Set them
+before the first tick.
 
 - `SC2_SURFACE_WINDOW`: an ordinary window. The other fields are not read.
 - `SC2_SURFACE_PANEL`: runs the full length of one edge (`SC2_POSITION_TOP`, `_BOTTOM`, `_LEFT`
   or `_RIGHT`), `surface_rows` thick on the top or bottom, `surface_columns` on the left or right.
   Windows keep clear of it. It takes no keyboard.
 - `SC2_SURFACE_POPUP`: `surface_columns` by `surface_rows`, at any `SC2_POSITION_`, over
-  everything. It takes the keyboard when the compositor gives it, and the host closes it when
-  it loses the keyboard.
+  everything. It takes the keyboard when the compositor gives it. With `surface_close_on_leave`
+  at 1 the host closes it when it loses the keyboard; at 0 it stays.
 
 A panel or popup keeps its cells when the font size changes. A host shows a window in place of
 a panel or popup it cannot make, or one that asks for no cells or for a position its kind does

@@ -59,6 +59,7 @@ typedef struct {
     uint16_t columns, rows;                    // a panel's or popup's cells, as placed
     uint8_t  kind;                             // SC2_SURFACE_, as placed
     uint8_t  position;                         // SC2_POSITION_, as placed
+    bool     close_on_leave;                   // a popup that closes when it loses the keyboard
 } Window;
 
 typedef struct {
@@ -205,7 +206,7 @@ typedef struct {
     uint32_t paste_request, copy_sequence;
     uint16_t font_size;
     uint16_t surface_columns, surface_rows;
-    uint8_t  surface_kind, surface_position;
+    uint8_t  surface_kind, surface_position, surface_close_on_leave;
     uint8_t  paste_request_data;
 } Commit;  // the small fields of one whole commit that the host acts on
 
