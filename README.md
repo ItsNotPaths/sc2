@@ -66,8 +66,8 @@ the clipboard and zoom, and `image` covers pixel nodes and dragging.
 
 ## Settings
 
-sc2host reads no config files. A program picks its own font and size through the
-contract (`font_path`, `font_size`). Edit `host/settings.c` for the default font,
+sc2host reads no config files. A program picks its own font, size and colors
+through the contract (`font_path`, `font_size`, `scheme_path`). Edit `host/settings.c` for the default font,
 size, colors and cursor, then rebuild. The default font is
 `/usr/share/fonts/TTF/DejaVuSansMono.ttf`, and sc2host stops with an error if it
 is missing.

@@ -114,7 +114,15 @@ A cell names one of the program's `styles`: a foreground and a background in RGB
 italic and underline. A background with alpha 0 shows whatever is under the cell. A wide cell
 draws its glyph across itself and the next cell, in its own style; the next cell's own bits are
 not drawn. The host reports its own colors in `host_palette`, in base16 order, for a program
-that wants to follow the host's theme.
+that wants to follow the host's theme. Under every node is the window background, the host's
+color 0.
+
+The program can give the host its colors with `scheme_path`: a base16 scheme file, ending at the
+first 0 byte, or empty for the host's own colors. Each color is a line `base0X: "#rrggbb"`;
+indent, quotes and `#` are optional. The host reads it at the next commit that names a different
+file or finds the file changed, and takes all 16 colors from it: the window background and
+`host_palette` both follow. A scheme that will not read is reported by the host, which keeps its
+own colors until the program names another file or the file changes.
 
 ## Closing
 
@@ -131,7 +139,8 @@ whatever the program does:
 
 - It seals the memfd, so the program cannot shrink the memory under the host's reads.
 - It reads only the cells and bytes the node rules allow (`libsc2/contract.h`), clamps
-  `copy_length`, ends `title`, `app_id` and `font_path` itself, and replaces bytes that are not valid UTF-8.
+  `copy_length`, ends `title`, `app_id`, `font_path` and `scheme_path` itself, and replaces bytes that are not valid UTF-8.
+  It reads `scheme_path` only when it is a regular file; sc2host also skips one over 64 KB.
 - It gives up on a read when the program keeps `commit_sequence` odd, and tries again at the
   next commit. sc2host waits 100 ms.
 - It bounds its own work per frame. sc2host packs at most `SC2_CELL_CAPACITY` cells, however

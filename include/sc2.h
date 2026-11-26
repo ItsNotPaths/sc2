@@ -107,6 +107,7 @@ typedef struct {
     char     title[256];                     // UTF-8, ends at the first 0; empty shows the file name
     char     app_id[64];                     // for window rules; empty sets none
     char     font_path[256];                 // a scalable font file, ends at the first 0; empty uses the host's
+    char     scheme_path[256];               // a base16 scheme file, ends at the first 0; empty uses the host's colors
     uint16_t font_size;                      // cell height in pixels at scale 1; 0 uses host_font_size
     uint16_t surface_columns, surface_rows;  // a popup's size; a panel's thickness across its edge
     uint8_t  surface_kind;                   // SC2_SURFACE_
@@ -128,7 +129,7 @@ typedef struct {
 // SC2_SHARED_FD, a memfd holding sc2_shared; SC2_COMMIT_FD, an eventfd the program writes after
 // each commit; SC2_INPUT_FD, an eventfd the host writes after input changes.
 
-enum { SC2_MAGIC = 0x322a6373, SC2_VERSION = 4 };  // magic is "sc*2" in memory
+enum { SC2_MAGIC = 0x322a6373, SC2_VERSION = 5 };  // magic is "sc*2" in memory
 
 // A region's sequence is odd while its writer writes it. A reader that saw an odd or changed
 // sequence across its read saw a torn region, and reads again.

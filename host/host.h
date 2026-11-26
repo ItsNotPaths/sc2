@@ -132,6 +132,13 @@ typedef struct {
 } Settings;
 
 typedef struct {
+    char     path[256];                        // the program's last scheme_path
+    struct timespec changed;                   // the file's modification time at the last read
+    uint32_t palette[16];                      // RGBA, base16 order
+    bool     read;                             // palette holds the file's colors
+} Scheme;  // the program's base16 colors, which replace the settings' palette
+
+typedef struct {
     VkBuffer        buffer;
     VkDeviceMemory  memory;
     VkDeviceAddress address;
@@ -194,6 +201,7 @@ typedef struct {
 typedef struct {
     char     title[256], app_id[64];           // terminated, not yet checked as UTF-8
     char     font_path[256];                   // terminated
+    char     scheme_path[256];                 // terminated
     uint32_t paste_request, copy_sequence;
     uint16_t font_size;
     uint16_t surface_columns, surface_rows;
@@ -244,6 +252,7 @@ typedef struct {
     Atlas     atlas;
     Drawing   drawing;
     Settings  settings;                        // changed only in settings_update
+    Scheme    scheme;
     Placement placements[NODE_COUNT];       // drawn nodes, flattened
 } Host;
 
@@ -320,6 +329,9 @@ void   clipboard_transfer(Host *host);
 
 // settings.c
 void settings_update(Host *host);
+
+// scheme.c
+void scheme_take(Host *host, const char *path);
 
 
 // flatten.c

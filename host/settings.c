@@ -30,5 +30,7 @@ void settings_update(Host *host) {
         host->settings.font_size = asked < FONT_SIZE_LOWEST ? FONT_SIZE_LOWEST
                                  : asked > FONT_SIZE_HIGHEST ? FONT_SIZE_HIGHEST : asked;
     host->incoming->host_font_size = defaults.font_size;
+    if (host->scheme.read)
+        memcpy(host->settings.palette, host->scheme.palette, sizeof host->settings.palette);
     memcpy(host->incoming->host_palette, host->settings.palette, sizeof host->settings.palette);
 }
