@@ -108,7 +108,7 @@ static bool shared_create(Host *host) {
 static bool events_create(Host *host) {
     host->commit_event = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
     host->input_event = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
-    host->repeat_timer = timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC);
+    host->repeat_timer = timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC | TFD_NONBLOCK);  // a release between poll and read disarms it
     if (host->commit_event < 0 || host->input_event < 0 || host->repeat_timer < 0)
         return failed("cannot make the events");
     return true;
